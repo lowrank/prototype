@@ -21,7 +21,7 @@ class Prototype(torch.nn.Module):
 
         self.in_channel       = in_channel
         self.out_channel      = out_channel 
-        self.kernel_size      = kernel_size 
+        self.kernel_size      = (kernel_size - 1)//2
 
         self.sph_bessel_root  = sph_bessel_root
         self.sph_harm_index   = sph_harm_index
