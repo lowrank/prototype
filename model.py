@@ -117,7 +117,7 @@ class Prototype(torch.nn.Module):
 
             # kernel_values shape: { (2 * kernel + 1)^3 } complex valued. 
             # q starts from 1.
-            kernel_values = mask * spherical_bessel_basis(l, roots[l, q-1], r) * np.conj( spherical_harmonics(m, l, theta, phi) ) 
+            kernel_values = mask * spherical_bessel_basis(l, roots[l, q-1], r) * np.conj( spherical_harmonics(m, l, theta, phi) )  / np.sqrt(2 * l + 1) / ((2 * self.kernel_size + 1)**3 ) 
             kernel_values = torch.tensor(kernel_values, dtype=torch.complex64).view(2 * self.kernel_size + 1,  2 * self.kernel_size + 1,  2 * self.kernel_size + 1)
 
             # ===> {Q x (L+1)^2 }  x (2K+1) x (2K+1) x (2K+1)  x 2
