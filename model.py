@@ -30,8 +30,6 @@ class Prototype(torch.nn.Module):
 
         self.padding          = padding
         self.stride           = stride
-        
-        self.activation       = ReLU()
 
         self.standard_layer   = standard_layer
 
@@ -390,9 +388,9 @@ class Prototype(torch.nn.Module):
 
     def forward(self, batch_images):
         if self.standard_layer:
-            return self.activation(self.standard_forward(batch_images))
+            return self.standard_forward(batch_images)
         else:
-            return self.activation(self.non_standard_forward(batch_images))
+            return self.non_standard_forward(batch_images)
         
         
         
