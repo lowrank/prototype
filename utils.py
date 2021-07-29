@@ -92,6 +92,7 @@ def spherical_harmonics(m , n, theta, phi):
     """
     return sc.sph_harm (m, n, theta, phi)
 
+@njit
 def wiger_d_func(l, n, m, theta):
     if n == 0 and m == 0:
         return sc.eval_legendre(np.float(l), np.cos(theta))
