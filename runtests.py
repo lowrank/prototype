@@ -15,11 +15,11 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 t0 = time.time()
 
-P = Prototype( in_channel=1, out_channel=1, kernel_size=3, \
+P = Prototype( in_channel=1, out_channel=1, kernel_size=5, \
                  sph_bessel_root=2, sph_harm_index=2, wigner_index=2, so3_sampling=(8, 8, 8), padding='same', stride=1, standard_layer=False)
 
 
-Q = Prototype( in_channel=1, out_channel=1, kernel_size=3, \
+Q = Prototype( in_channel=1, out_channel=1, kernel_size=5, \
                  sph_bessel_root=2, sph_harm_index=2, wigner_index=2, so3_sampling=(8, 8, 8), padding='same', stride=1, standard_layer=True)
 
 t1 = time.time()
