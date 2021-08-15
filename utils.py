@@ -5,10 +5,6 @@ import scipy.special as sc
 
 from scipy.optimize import brentq
 
-from numba import njit
-import numba_scipy
-
-
 def generate_so3_sampling_grid(n_beta=8, n_alpha=8, n_gamma=8):
     """
     @param:  (n_beta, n_alpha,  n_gamma) uniform grid sizes. 
@@ -66,8 +62,6 @@ def spherical_bessel_basis(n, root,  z=0, normalization=False):
     else:
         return sc.spherical_jn(n, root * z) 
 
-
-@njit
 def cartesian_spherical(x,y,z):
     """
     @param x, y, z  : coordinates
@@ -92,7 +86,6 @@ def spherical_harmonics(m , n, theta, phi):
     """
     return sc.sph_harm (m, n, theta, phi)
 
-@njit
 def wiger_d_func(l, n, m, theta):
     if n == 0 and m == 0:
         return sc.eval_legendre(np.float(l), np.cos(theta))
