@@ -5,6 +5,52 @@ import scipy.special as sc
 
 from scipy.optimize import brentq
 
+import ctypes
+import numpy as np
+
+def generate_so3_lebedev(n=26, n_gamma=8):
+    """
+    @param:  (n,  n_gamma) grid
+    @return: np.ndarray (n  x n_gamma, 3)
+    """
+    
+    LIB = ctypes.CDLL("./liblebedevlaikov.so")
+
+    LDNS = [6, 14, 26, 38, 50, 74, 86, 110, 146, 170, 194, 230, 266, 302, 350, 434,
+            590, 770, 974, 1202, 1454, 1730, 2030, 2354, 2702, 3074, 3470, 3890,
+            4334, 4802, 5294, 5810]
+
+    if n not in LDNS:
+        raise ValueError("n = {} not supported".format(n))
+    xyzw = np.zeros((4, n), dtype=np.float64)
+    c_double_p = ctypes.POINTER(ctypes.c_double)
+    n_out = ctypes.c_int(0)
+    getattr(LIB, "ld{:04}_".format(n))(
+        xyzw[0].ctypes.data_as(c_double_p),
+        xyzw[1].ctypes.data_as(c_double_p),
+        xyzw[2].ctypes.data_as(c_double_p),
+        xyzw[3].ctypes.data_as(c_double_p),
+        ctypes.byref(n_out))
+    assert n == n_out.value
+    
+    azimuth, polar, _ = cartesian_spherical(xyzw[0,:], xyzw[1,:], xyzw[2, :])
+     
+    _gamma = np.linspace(start=-np.pi, stop=np.pi, num=n_gamma, endpoint=False, dtype=float)
+
+    _s2_grid = np.stack((polar, azimuth), axis=1)
+
+    sample_grid = np.zeros( (_s2_grid.shape[0] * _gamma.shape[0], 3)) 
+    sample_weight = np.zeros( _s2_grid.shape[0] * _gamma.shape[0] )
+
+    for gamma_id, gamma in enumerate(_gamma):
+        sample_grid[gamma_id * _s2_grid.shape[0]: ((gamma_id+1) * _s2_grid.shape[0]), 0:2] = _s2_grid
+        sample_grid[gamma_id * _s2_grid.shape[0]: ((gamma_id+1) * _s2_grid.shape[0]), 2]   = gamma
+        sample_weight[gamma_id * _s2_grid.shape[0]: ((gamma_id+1) * _s2_grid.shape[0])]    = xyzw[3,:] /n_gamma
+
+    sample_weight = torch.tensor(sample_weight, dtype=torch.float)
+    return sample_grid, sample_weight
+
+
 def generate_so3_sampling_grid(n_beta=8, n_alpha=8, n_gamma=8):
     """
     @param:  (n_beta, n_alpha,  n_gamma) uniform grid sizes. 
