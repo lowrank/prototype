@@ -9,11 +9,11 @@ import numpy as np
 
 import matplotlib.pyplot as plt
 
-from utils import generate_so3_sampling_grid, spherical_bessel_roots, spherical_bessel_basis, cartesian_spherical, spherical_harmonics, wignerD
+from utils import generate_so3_lebedev, generate_so3_sampling_grid, spherical_bessel_roots, spherical_bessel_basis, cartesian_spherical, spherical_harmonics, wignerD
 
 class Prototype(torch.nn.Module):
     def __init__(self, in_channel=1, out_channel=1, \
-                 kernel_size=5, sph_bessel_root=3, sph_harm_index=3, wigner_index=3, so3_sampling=(8, 8, 8), \
+                 kernel_size=5, sph_bessel_root=3, sph_harm_index=3, wigner_index=3, so3_grid_type='lebedev', so3_sampling=(26, 8), \
                  padding='same', stride=1,\
                  standard_layer=True):
         
@@ -60,7 +60,10 @@ class Prototype(torch.nn.Module):
 
         roots  = spherical_bessel_roots(self.sph_harm_index, self.sph_bessel_root) 
 
-        so3_grid, so3_weight = generate_so3_sampling_grid(self.so3_sampling[0], self.so3_sampling[1], self.so3_sampling[2])
+        if so3_grid_type == 'lebedev':
+            so3_grid, so3_weight = generate_so3_lebedev(self.so3_sampling[0], self.so3_sampling[1])
+        elif so3_grid_type == 'uniform':
+            so3_grid, so3_weight = generate_so3_sampling_grid(self.so3_sampling[0], self.so3_sampling[1], self.so3_sampling[2])
         
         self.so3_grid = so3_grid
 
@@ -427,7 +430,7 @@ class Prototype(torch.nn.Module):
         # normalize.
         for row in range(self.g_index.shape[0]):
             for col in range(self.g_index.shape[0]):
-                local_wigner_mat[row, col] =  local_wigner_mat[row, col] / np.sqrt( (8*np.pi**2/(2*self.g_index[row][0]+1) ) * (8*np.pi**2/(2*self.g_index[col][0]+1) ) )
+                local_wigner_mat[row, col] =  local_wigner_mat[row, col] / np.sqrt(local_wigner_mat[row, row].real   * local_wigner_mat[col, col].real)
 
 
         wigner_svd_vals = np.linalg.svd(local_wigner_mat, compute_uv=False)
