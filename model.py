@@ -67,7 +67,6 @@ class Prototype(torch.nn.Module):
         
         self.so3_grid = so3_grid
 
-
         if self.sph_harm_index <= self.wigner_index:
             # this is stored on GPU with torch tensor.
             cache = torch.zeros( ( self.g_index.shape[0], self.so3_grid.shape[0], 2) , dtype=torch.float32)
