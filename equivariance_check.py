@@ -118,10 +118,10 @@ def integral(P, images, l, m , n, rot):
 
         x, y = wignerD(l, m, n, b, a, c)
 
-        # integration on Haar measure.
-        ret[..., 0] = ret[..., 0] + np.sin(beta) * (x  * images[:, :, so3_index, :, :, :, 0].detach().cpu().numpy() - \
+        # integration on Haar measure.    
+        ret[..., 0] = ret[..., 0] + P.so3_weight.cpu()[so3_index].item() * (x  * images[:, :, so3_index, :, :, :, 0].detach().cpu().numpy() - \
                                 y * images[:, :, so3_index, :, :, :, 1].detach().cpu().numpy()  ) * (4*np.pi**3/ P.so3_grid.shape[0] )/np.sqrt(8*np.pi**2/(2*l+1))
-        ret[..., 1] = ret[..., 1] + np.sin(beta) * (y  * images[:, :, so3_index, :, :, :, 0].detach().cpu().numpy() + \
+        ret[..., 1] = ret[..., 1] + P.so3_weight.cpu()[so3_index].item() * (y  * images[:, :, so3_index, :, :, :, 0].detach().cpu().numpy() + \
                                 x * images[:, :, so3_index, :, :, :, 1].detach().cpu().numpy()  ) * (4*np.pi**3/ P.so3_grid.shape[0] )/np.sqrt(8*np.pi**2/(2*l+1))
 
     return ret
