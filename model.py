@@ -176,7 +176,7 @@ class Prototype(torch.nn.Module):
 
         # set parameter for this layer. Requires grad.
 
-        init_param   = torch.rand( self.in_channel, self.out_channel,  self.g_index.shape[0], self.v_index.shape[0])
+        init_param   = torch.randn( self.in_channel, self.out_channel,  self.g_index.shape[0], self.v_index.shape[0])
 
         self.weights =  torch.nn.Parameter(init_param , requires_grad=True)
 
