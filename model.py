@@ -194,15 +194,14 @@ class Prototype(torch.nn.Module):
         #   standard_layer:   {Batch Size (b)} x {Channel In (i)} x {Group Size (g)} x {H} x {W} x {D} x {real, imag}
         #   otheriwse:        {Batch Size (b)} x {Channel In (i)} x {H} x {W} x {D} x {real, imag}
         # 
-        # Typical Input Batch Image Data 4 x 8 x 512 x 32 x 32 x 32 x 2 (float32) = 4 GByte.
-        # GPU computation would be difficult if all ops are on GPU. 
+        # Typical Input Batch Image Data 1 x 8 x (26x8) x 32 x 32 x 32 x 2 (float32) = 0.7 GByte. (64x64x64 images ~ 5.6GBytes)
 
-        # compute H functions through SO3 integral by einsum on {Group Size}. 
+        
+        # Step 1. 
+        # Compute H functions through SO3 integral by einsum on {Group Size}. 
         #
-        # Output is 
-        #   standard_layer: {Batch Size} x {Channel In} x {g_index} x {H} x {W} x {D} (x 2)
-        #   otherwise:      {Batch Size} x {Channel In}             x {H} x {W} x {D} (x 2)
-        # Typical Output Batch Data 2 x 4 x 84 x 32 x 32 x 32 (x 2) (float32) = 0.165 GByte.
+        # Output is {Batch Size} x {Channel In} x {g_index} x {H} x {W} x {D} (x 2}
+        # Typical Output Batch Data 1 x 8 x 84 x 32 x 32 x 32 (x 2) (float32) = 0.32 GByte. (64x64x64 images ~ 2.4GBytes, later downsample to 32x32x32)
         # Remember the conjugate (negative sign)
         # Should use GPU (by loading the data on GPU).
 
@@ -221,19 +220,22 @@ class Prototype(torch.nn.Module):
 
             H_imag =  batch_images[..., 1]
 
+            
+        # Step 2.
         # Convolution with Kernels (real/imag parts). The convolution takes 4 real convolutions since torch only supports real ops.
 
-        # Batch Image:
+        # Batch Image Input From Step 1:
         #   standard_layer: [ {Batch Size} x {Channel In} x {g_index} ] x {H} x {W} x {D}
         #   otherwise:      [ {Batch Size} x {Channel In}  ]            x {H} x {W} x {D}
 
-        # Conv3D Kernels: {Q x (L+1)^2 } x 1 x (2K+1) x (2K+1) x (2K+1)
+        # Conv3D filters: {Q x (L+1)^2 } x 1 x (filter_size) x (filter_size) x (filter_size). 
+        # stride, padding are user-supplied.
 
         # Out: 
-        #   standard_layer: {Batch Size} x {Channel In} x {g_index} x {v_index} x {H} x {W} x {D}
-        #   otherwise:      {Batch Size} x {Channel In} x             {v_index} x {H} x {W} x {D}
+        #   standard_layer: {Batch Size} x {Channel In} x {g_index} x {v_index} x {H'} x {W'} x {D'} (depends on convolution arguments).
+        #   otherwise:      {Batch Size} x {Channel In} x             {v_index} x {H'} x {W'} x {D'} (depends on convolution arguments).
         #
-        # Data Size: 2 x 4 x 84 x (3 x 35) x 32 x 32 x 32 (x 2) float ~ 6 GBytes?
+        # Typical Output Size: 1 x 8 x 84 x (3 x 35) x 32 x 32 x 32 (x 2) float ~ 4.3 GBytes.
 
         real_part = torch.nn.functional.conv3d(input = H_real.reshape(-1, 1, H, W, D ) , \
                                 weight = self.kernel_real.view(-1, 1, 2 * self.kernel_size + 1 , 2 * self.kernel_size + 1 , 2 * self.kernel_size + 1 ), \
@@ -288,18 +290,16 @@ class Prototype(torch.nn.Module):
     def non_standard_forward(self, batch_images):
 
         # both shape:
-        #   standard: {Batch Size} x {Channel In} x {g_index} x {v_index} x {H'} x {W'} x {D'} (depends on convolution arguments).
-        #   otherwise: {Batch Size} x {Channel In}            x {v_index} x {H'} x {W'} x {D'} (depends on convolution arguments).
+        #   standard:  {Batch Size (b)} x {Channel In (i)} x {g_index (K)} x {v_index (V)} x {H'} x {W'} x {D'} (depends on convolution arguments).
+        #   otherwise: {Batch Size (b)} x {Channel In (i)}                 x {v_index (V)} x {H'} x {W'} x {D'} (depends on convolution arguments).
 
         G_real, G_imag = self.compute_G(batch_images) 
 
-        # parameters. {Channel In} x {Channel Out} x {g_index} x {v_index}
+        # parameters:     {Channel In (i)} x {Channel Out (o)} x {g_index (K)} x {v_index (V)}
 
-        # set output: {Batch Size} x {Channel Out} x {Group Size} x {H} x {W} x {D} x {real, imag}
+        # output shape:   {Batch Size (b)} x {Channel Out (o)} x {Group Size (g)} x {H'} x {W'} x {D'} x {real, imag}
 
-        # There are 8 einsum to compute...
-
-        # real, rr
+        # real part
 
         einsum_str1 = 'iokv, vVg->iokVg'
         einsum_str2 = 'iokVg, biVhwd->boghwd'
@@ -314,7 +314,8 @@ class Prototype(torch.nn.Module):
 
         output_real = output_real.unsqueeze(dim=-1)
 
-        # imag ri
+        # imag part
+        
         output = torch.einsum(einsum_str1,          self.weights, self.T_real)
         output_imag = torch.einsum(einsum_str2,     output, G_imag)
 
@@ -330,16 +331,15 @@ class Prototype(torch.nn.Module):
 
     def standard_forward(self, batch_images):
         
-
         # both shape:
-        #   standard: {Batch Size} x {Channel In} x {g_index} x {v_index} x {H'} x {W'} x {D'} (depends on convolution arguments).
-        #   otherwise: {Batch Size} x {Channel In}            x {v_index} x {H'} x {W'} x {D'} (depends on convolution arguments).
+        #   standard:  {Batch Size (b)} x {Channel In (i)} x {g_index (K)} x {v_index (V)} x {H'} x {W'} x {D'} (depends on convolution arguments).
+        #   otherwise: {Batch Size (b)} x {Channel In (i)}                 x {v_index (V)} x {H'} x {W'} x {D'} (depends on convolution arguments).
 
         G_real, G_imag = self.compute_G(batch_images) 
+        
+        # parameters:   {Channel In (i)} x {Channel Out (o)} x {g_index (K)} x {v_index (V)}
 
-        # parameters. {Channel In} x {Channel Out} x {g_index} x {v_index}
-
-        # set output: {Batch Size} x {Channel Out} x {Group Size} x {H} x {W} x {D} x {real, imag}
+        # output shape: {Batch Size (b)} x {Channel Out (o)} x {Group Size (g)} x {H} x {W} x {D} x {real, imag}
 
         # There are 8 einsum to compute...
 
