@@ -179,7 +179,16 @@ class Prototype(torch.nn.Module):
         init_param   = torch.randn( self.in_channel, self.out_channel,  self.g_index.shape[0], self.v_index.shape[0])
 
         self.weights =  torch.nn.Parameter(init_param , requires_grad=True)
-
+        
+        
+    def extra_repr(self):
+        # Set the information of this module.
+        return 'input_features={}, output_features={}, filter size={}, basis params=(q={}, l={}, b={}), stride={}, padding={}, standard layer={}'.format(
+            self.in_channel, self.out_channel, self.kernel_size, self.sph_bessel_root, 
+            self.sph_harm_index, self.wigner_index, self.stride, 
+            self.padding, self.standard_layer
+        )        
+        
     def compute_G(self, batch_images):
         # compute the G functions from batch_images of size:
         #   standard_layer:   {Batch Size (b)} x {Channel In (i)} x {Group Size (g)} x {H} x {W} x {D} x {real, imag}
