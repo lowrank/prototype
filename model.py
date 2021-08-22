@@ -194,7 +194,8 @@ class Prototype(torch.nn.Module):
         #   standard_layer:   {Batch Size (b)} x {Channel In (i)} x {Group Size (g)} x {H} x {W} x {D} x {real, imag}
         #   otheriwse:        {Batch Size (b)} x {Channel In (i)} x {H} x {W} x {D} x {real, imag}
         # 
-        # Typical Input Batch Image Data 1 x 8 x (26x8) x 32 x 32 x 32 x 2 (float32) = 0.7 GByte. (64x64x64 images ~ 5.6GBytes)
+        # Typical Input Batch Image Data 
+        # standard layer: 1 x 8 x (26x8) x 32 x 32 x 32 x 2 (float32) = 0.7 GByte. (64x64x64 images ~ 5.6GBytes)
 
         
         # Step 1. 
