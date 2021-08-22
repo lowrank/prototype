@@ -184,7 +184,7 @@ class Prototype(torch.nn.Module):
     def extra_repr(self):
         # Set the information of this module.
         return 'input_features={}, output_features={}, filter size={}, basis params=(q={}, l={}, b={}), stride={}, padding={}, standard layer={}'.format(
-            self.in_channel, self.out_channel, self.kernel_size, self.sph_bessel_root, 
+            self.in_channel, self.out_channel, 2 * self.kernel_size + 1, self.sph_bessel_root, 
             self.sph_harm_index, self.wigner_index, self.stride, 
             self.padding, self.standard_layer
         )        
