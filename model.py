@@ -1,14 +1,6 @@
 import torch
-
-
-from torch.nn import ReLU
 import torch.nn.functional as F
-
-
 import numpy as np
-
-import matplotlib.pyplot as plt
-
 from utils import generate_so3_lebedev, generate_so3_sampling_grid, spherical_bessel_roots, spherical_bessel_basis, cartesian_spherical, spherical_harmonics, wignerD
 
 class Prototype(torch.nn.Module):
@@ -256,7 +248,6 @@ class Prototype(torch.nn.Module):
         
         
         if self.standard_layer:
-            # without g_index.
             return  real_part.view(batch_images.shape[0], \
                                 batch_images.shape[1], \
                                 self.g_index.shape[0], \
@@ -293,14 +284,13 @@ class Prototype(torch.nn.Module):
         # both shape:
         #   standard:  {Batch Size (b)} x {Channel In (i)} x {g_index (K)} x {v_index (V)} x {H'} x {W'} x {D'} (depends on convolution arguments).
         #   otherwise: {Batch Size (b)} x {Channel In (i)}                 x {v_index (V)} x {H'} x {W'} x {D'} (depends on convolution arguments).
-
-        G_real, G_imag = self.compute_G(batch_images) 
+        
+        with torch.no_grad():
+            G_real, G_imag = self.compute_G(batch_images) 
 
         # parameters:     {Channel In (i)} x {Channel Out (o)} x {g_index (K)} x {v_index (V)}
 
         # output shape:   {Batch Size (b)} x {Channel Out (o)} x {Group Size (g)} x {H'} x {W'} x {D'} x {real, imag}
-
-        # real part
 
         einsum_str1 = 'iokv, vVg->iokVg'
         einsum_str2 = 'iokVg, biVhwd->boghwd'
@@ -308,23 +298,16 @@ class Prototype(torch.nn.Module):
         output = torch.einsum(einsum_str1,         self.weights, self.T_real)
         output_real = torch.einsum(einsum_str2,    output, G_real)
 
-        output = torch.einsum(einsum_str1,          self.weights, self.T_imag)
-        output_ii = torch.einsum(einsum_str2,      output, G_imag)
-
-        output_real -= output_ii
-
-        output_real = output_real.unsqueeze(dim=-1)
-
-        # imag part
-        
         output = torch.einsum(einsum_str1,          self.weights, self.T_real)
         output_imag = torch.einsum(einsum_str2,     output, G_imag)
 
         output = torch.einsum(einsum_str1,          self.weights, self.T_imag)
-        output_ir = torch.einsum(einsum_str2,       output, G_real)
+        output_imag += torch.einsum(einsum_str2,       output, G_real)
 
-        output_imag += output_ir
+        output = torch.einsum(einsum_str1,          self.weights, self.T_imag)
+        output_real -= torch.einsum(einsum_str2,      output, G_imag)
 
+        output_real = output_real.unsqueeze(dim=-1)
         output_imag = output_imag.unsqueeze(dim=-1)
 
         return torch.cat((output_real, output_imag), dim=-1) # Batch x Out Channel x Group x H x W x D
@@ -344,55 +327,41 @@ class Prototype(torch.nn.Module):
 
         # There are 8 einsum to compute...
 
-        # real
+        # For memory efficiency, only 3 terms needed.
+
         output = torch.einsum('iokv, kKg->ioKvg',          self.weights, self.W_real)
         output = torch.einsum('ioKvg, vVg->ioKVg',               output, self.T_real)
         output_real = torch.einsum('ioKVg, biKVhwd->boghwd',     output, G_real)
 
-
         output = torch.einsum('iokv, kKg->ioKvg',          self.weights, self.W_imag)
         output = torch.einsum('ioKvg, vVg->ioKVg',               output, self.T_imag)
-        output_iir = torch.einsum('ioKVg, biKVhwd->boghwd',      output, G_real)
-
-        output_real -= output_iir 
+        output_real -= torch.einsum('ioKVg, biKVhwd->boghwd',      output, G_real)
 
         output = torch.einsum('iokv, kKg->ioKvg',          self.weights, self.W_imag)
         output = torch.einsum('ioKvg, vVg->ioKVg',               output, self.T_real)
-        output_iri = torch.einsum('ioKVg, biKVhwd->boghwd',      output, G_imag)
-
-        output_real -= output_iri 
+        output_real -= torch.einsum('ioKVg, biKVhwd->boghwd',      output, G_imag)
 
         output = torch.einsum('iokv, kKg->ioKvg',          self.weights, self.W_real)
         output = torch.einsum('ioKvg, vVg->ioKVg',               output, self.T_imag)
-        output_rii = torch.einsum('ioKVg, biKVhwd->boghwd',      output, G_imag)
+        output_real -= torch.einsum('ioKVg, biKVhwd->boghwd',      output, G_imag)
 
-        output_real -= output_rii
-
-        output_real = output_real.unsqueeze(dim=-1)
-
-        # imag
         output = torch.einsum('iokv, kKg->ioKvg',          self.weights, self.W_real)
         output = torch.einsum('ioKvg, vVg->ioKVg',               output, self.T_real)
         output_imag = torch.einsum('ioKVg, biKVhwd->boghwd',      output, G_imag)
 
         output = torch.einsum('iokv, kKg->ioKvg',          self.weights, self.W_real)
         output = torch.einsum('ioKvg, vVg->ioKVg',               output, self.T_imag)
-        output_rir = torch.einsum('ioKVg, biKVhwd->boghwd',      output, G_real)
-
-        output_imag += output_rir
+        output_imag += torch.einsum('ioKVg, biKVhwd->boghwd',      output, G_real)
 
         output = torch.einsum('iokv, kKg->ioKvg',          self.weights, self.W_imag)
         output = torch.einsum('ioKvg, vVg->ioKVg',               output, self.T_real)
-        output_irr = torch.einsum('ioKVg, biKVhwd->boghwd',      output, G_real)
-
-        output_imag += output_irr
+        output_imag += torch.einsum('ioKVg, biKVhwd->boghwd',      output, G_real)
 
         output = torch.einsum('iokv, kKg->ioKvg',          self.weights, self.W_imag)
         output = torch.einsum('ioKvg, vVg->ioKVg',               output, self.T_imag)
-        output_iii = torch.einsum('ioKVg, biKVhwd->boghwd',      output, G_imag)
+        output_imag -= torch.einsum('ioKVg, biKVhwd->boghwd',      output, G_imag)
 
-        output_imag -= output_iii
-
+        output_real = output_real.unsqueeze(dim=-1)
         output_imag = output_imag.unsqueeze(dim=-1)
 
         return torch.cat((output_real, output_imag), dim=-1) # Batch x Out Channel x Group x H x W x D
