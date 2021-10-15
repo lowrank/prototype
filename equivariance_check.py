@@ -10,7 +10,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Rotate Image in space with Euler angles (alpha, beta, gamma)
 
-def rotate_image(images, alpha, beta, gamma):
+def rotate_image(images, alpha, beta, gamma, interp=1):
     # images of shape [N x H X W X D].
 
     # create meshgrid
@@ -48,14 +48,14 @@ def rotate_image(images, alpha, beta, gamma):
  
     # sample
     if not single_image:
-        output = np.concatenate([ np.expand_dims(  map_coordinates(images[_, ...], new_xyz, order=1).reshape(dim[-3],dim[-2],dim[-1]), axis=0) for _ in range(dim[0])], axis=0) 
+        output = np.concatenate([ np.expand_dims(  map_coordinates(images[_, ...], new_xyz, order=interp).reshape(dim[-3],dim[-2],dim[-1]), axis=0) for _ in range(dim[0])], axis=0) 
     else:
-        output = map_coordinates(images, new_xyz, order=1).reshape(dim[-3],dim[-2],dim[-1])
+        output = map_coordinates(images, new_xyz, order=interp).reshape(dim[-3],dim[-2],dim[-1])
     
     return output
 
 
-def rotate_image_mat(images, mat):
+def rotate_image_mat(images, mat, interp=1):
     # images of shape [N x H X W X D].
 
     # create meshgrid
@@ -90,23 +90,23 @@ def rotate_image_mat(images, mat):
  
     # sample
     if not single_image:
-        output = np.concatenate([ np.expand_dims(  map_coordinates(images[_, ...], new_xyz, order=1).reshape(dim[-3],dim[-2],dim[-1]), axis=0) for _ in range(dim[0])], axis=0) 
+        output = np.concatenate([ np.expand_dims(  map_coordinates(images[_, ...], new_xyz, order=interp).reshape(dim[-3],dim[-2],dim[-1]), axis=0) for _ in range(dim[0])], axis=0) 
     else:
-        output = map_coordinates(images, new_xyz, order=1).reshape(dim[-3],dim[-2],dim[-1])
+        output = map_coordinates(images, new_xyz, order=interp).reshape(dim[-3],dim[-2],dim[-1])
     
     return output
 
 
 
-def integral(P, images, l, m , n, rot): 
+def integral(grid, w, images, l, m , n, rot): 
     if rot is not None:
         alpha_, beta_, gamma_ = convert_to_euler_angles(rot)
     else:
         alpha_, beta_, gamma_ = 0, 0, 0
 
     ret = np.zeros((images.shape[0], images.shape[1], images.shape[3], images.shape[4], images.shape[5], images.shape[6]), dtype=float)
-    for so3_index in range(P.so3_grid.shape[0]):
-        beta, alpha, gamma = P.so3_grid[so3_index, :]
+    for so3_index in range(grid.shape[0]):
+        beta, alpha, gamma = grid[so3_index, :]
         
         Z = R.from_euler('zyz', [gamma, beta,  alpha], degrees=False).as_matrix()
         if rot is not None:
@@ -119,10 +119,10 @@ def integral(P, images, l, m , n, rot):
         x, y = wignerD(l, m, n, b, a, c)
 
         # integration on Haar measure.    
-        ret[..., 0] = ret[..., 0] + P.so3_weight.cpu()[so3_index].item() * (x  * images[:, :, so3_index, :, :, :, 0].detach().cpu().numpy() - \
-                                y * images[:, :, so3_index, :, :, :, 1].detach().cpu().numpy()  ) * (4*np.pi**3/ P.so3_grid.shape[0] )/np.sqrt(8*np.pi**2/(2*l+1))
-        ret[..., 1] = ret[..., 1] + P.so3_weight.cpu()[so3_index].item() * (y  * images[:, :, so3_index, :, :, :, 0].detach().cpu().numpy() + \
-                                x * images[:, :, so3_index, :, :, :, 1].detach().cpu().numpy()  ) * (4*np.pi**3/ P.so3_grid.shape[0] )/np.sqrt(8*np.pi**2/(2*l+1))
+        ret[..., 0] = ret[..., 0] + w[so3_index] * (x  * images[:, :, so3_index, :, :, :, 0].detach().cpu().numpy() - \
+                                y * images[:, :, so3_index, :, :, :, 1].detach().cpu().numpy()  ) * (4*np.pi**3/ grid.shape[0] )/np.sqrt(8*np.pi**2/(2*l+1))
+        ret[..., 1] = ret[..., 1] + w[so3_index] * (y  * images[:, :, so3_index, :, :, :, 0].detach().cpu().numpy() + \
+                                x * images[:, :, so3_index, :, :, :, 1].detach().cpu().numpy()  ) * (4*np.pi**3/ grid.shape[0] )/np.sqrt(8*np.pi**2/(2*l+1))
 
     return ret
 
@@ -227,15 +227,15 @@ def one_layer(P, images, rotation):
     return rot_transform_images, transform_rot_images
 
 
-def check_equiv_weak_formula(P, L, tr, rt, rotation):
+def check_equiv_weak_formula(grid, w, L, tr, rt, rotation):
     # Using Wigner D to check. Largest order L.
     S = 0
     T = 0
     for l in range(L+1):
         for m in range(-l,l+1):
             for n in range(-l,l+1):
-                TR = integral(P, tr, l, m, n, None)
-                RT = integral(P, rt, l, m, n, rotation)
+                TR = integral(grid, w, tr, l, m, n, None)
+                RT = integral(grid, w, rt, l, m, n, rotation)
                 S += np.sum((RT-TR)**2)
                 T += np.sum(RT**2)
                 s = np.sqrt(np.sum((RT-TR)**2))/np.sqrt(np.sum(RT**2))
@@ -243,3 +243,31 @@ def check_equiv_weak_formula(P, L, tr, rt, rotation):
                 print('test case (l, m, n)=(', l, m , n, ')\t, relative error (frobenius) :', s, '\t norm: ', t)
     print('\nL^2 error on Projection Space:', np.sqrt(S/T))
 
+
+def check_equivariance(network, images, rotation):
+
+    rot_images_real = rotate_image_mat(images[0, 0, ..., 0].detach().cpu().numpy(), rotation)
+    rot_images_imag = rotate_image_mat(images[0, 0, ..., 1].detach().cpu().numpy(), rotation)
+
+    rot_images =  torch.zeros(images.shape, dtype=torch.float32)
+
+    rot_images[0, 0, ..., 0] = torch.tensor( rot_images_real ) # copy 
+    rot_images[0, 0, ..., 1] = torch.tensor( rot_images_imag ) # copy 
+
+    rot_images = rot_images.to(device)
+
+    transform_rot_images = network(rot_images)
+
+    transform_images = network(images)
+
+    _rot_transform_images_real = rotate_image_mat(transform_images[0, 0, :, ..., 0].detach().cpu().numpy(), rotation)
+    _rot_transform_images_imag = rotate_image_mat(transform_images[0, 0, :, ..., 1].detach().cpu().numpy(), rotation)
+
+    rot_transform_images =  torch.zeros(transform_images.shape, dtype=torch.float32)
+
+    rot_transform_images [0, 0, :, ..., 0] = torch.tensor( _rot_transform_images_real ) # copy 
+    rot_transform_images [0, 0, :, ..., 1] = torch.tensor( _rot_transform_images_imag ) # copy 
+
+    rot_transform_images = rot_transform_images.to(device)
+
+    return rot_transform_images, transform_rot_images
