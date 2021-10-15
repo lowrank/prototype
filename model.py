@@ -5,7 +5,8 @@ from utils import generate_so3_lebedev, generate_so3_sampling_grid, spherical_be
 
 class Prototype(torch.nn.Module):
     def __init__(self, in_channel=1, out_channel=1, \
-                 kernel_size=5, sph_bessel_root=3, sph_harm_index=3, wigner_index=3, so3_grid_type='lebedev', so3_sampling=(26, 8), \
+                 kernel_size=5, sph_bessel_root=3, sph_harm_index=3, wigner_index=3, \
+                 so3_sampling=[(26, 8), (14, 8)], \
                  padding='same', stride=1,\
                  standard_layer=True):
         
@@ -52,21 +53,31 @@ class Prototype(torch.nn.Module):
 
         roots  = spherical_bessel_roots(self.sph_harm_index, self.sph_bessel_root) 
 
-        if so3_grid_type == 'lebedev':
-            so3_grid, so3_weight = generate_so3_lebedev(self.so3_sampling[0], self.so3_sampling[1])
-        elif so3_grid_type == 'uniform':
-            so3_grid, so3_weight = generate_so3_sampling_grid(self.so3_sampling[0], self.so3_sampling[1], self.so3_sampling[2])
-        
-        self.so3_grid = so3_grid
+        # input/output grid
+        input_so3_grid,  input_so3_weight   = generate_so3_lebedev(self.so3_sampling[0][0],  self.so3_sampling[0][1])
+        output_so3_grid, output_so3_weight  = generate_so3_lebedev(self.so3_sampling[1][0],  self.so3_sampling[1][1])
+
+        self.input_so3_grid  = input_so3_grid
+        self.output_so3_grid = output_so3_grid
+
+        # generate cache
+
+        cache  = torch.zeros( ( self.g_index.shape[0], self.input_so3_grid.shape[0], 2) , dtype=torch.float32)
+        for g_order, g_idx in enumerate(self.g_index):
+            for so3_idx in range(self.input_so3_grid.shape[0]):
+                beta, alpha, gamma = self.input_so3_grid[so3_idx, :]
+                cache[g_order, so3_idx, 0], cache[g_order, so3_idx, 1] =  wignerD(g_idx[0], g_idx[1], g_idx[2], beta, alpha, gamma) 
 
         if self.sph_harm_index <= self.wigner_index:
             # this is stored on GPU with torch tensor.
-            cache = torch.zeros( ( self.g_index.shape[0], self.so3_grid.shape[0], 2) , dtype=torch.float32)
+            
+            output_cache = torch.zeros( ( self.g_index.shape[0], self.output_so3_grid.shape[0], 2) , dtype=torch.float32)
 
             for g_order, g_idx in enumerate(self.g_index):
-                for so3_idx in range(self.so3_grid.shape[0]):
-                    beta, alpha, gamma = self.so3_grid[so3_idx, :]
-                    cache[g_order, so3_idx, 0], cache[g_order, so3_idx, 1] =  wignerD(g_idx[0], g_idx[1], g_idx[2], beta, alpha, gamma) 
+                for so3_idx in range(self.output_so3_grid.shape[0]):
+                    beta, alpha, gamma = self.output_so3_grid[so3_idx, :]
+                    output_cache[g_order, so3_idx, 0], output_cache[g_order, so3_idx, 1] =  wignerD(g_idx[0], g_idx[1], g_idx[2], beta, alpha, gamma) 
+
         else:
             _cache_degree         = np.concatenate( [ [index] * (2 * index + 1 )**2 for index in range(self.sph_harm_index + 1)] )
             _cache_orders         = np.array([], dtype=np.int32).reshape(0, 2)    
@@ -80,16 +91,14 @@ class Prototype(torch.nn.Module):
 
             _cache_index = np.column_stack( (_cache_degree, _cache_orders))
                     
-            cache = torch.zeros( ( _cache_index.shape[0], self.so3_grid.shape[0], 2) , dtype=torch.float32)
+            output_cache = torch.zeros( ( _cache_index.shape[0], self.output_so3_grid.shape[0], 2) , dtype=torch.float32)
 
             for g_order, g_idx in enumerate(_cache_index):
-                for so3_idx in range(self.so3_grid.shape[0]):
-                    beta, alpha, gamma = self.so3_grid[so3_idx, :]
-                    cache[g_order, so3_idx, 0], cache[g_order, so3_idx, 1] =  wignerD(g_idx[0], g_idx[1], g_idx[2], beta, alpha, gamma)             
+                for so3_idx in range(self.output_so3_grid.shape[0]):
+                    beta, alpha, gamma = self.output_so3_grid[so3_idx, :]
+                    output_cache[g_order, so3_idx, 0], output_cache[g_order, so3_idx, 1] =  wignerD(g_idx[0], g_idx[1], g_idx[2], beta, alpha, gamma)      
 
-
-
-        # Kernels with respect to spherical harmonics.
+        # filters with respect to spherical harmonics.
         kernel_range = np.arange(-self.kernel_size, self.kernel_size + 1)
         _x, _y, _z   = np.meshgrid(kernel_range, kernel_range, kernel_range, sparse=False, indexing="ij")
         _x, _y, _z   = _x.flatten(), _y.flatten(), _z.flatten()  
@@ -117,19 +126,17 @@ class Prototype(torch.nn.Module):
             kernel_real[v_order, ...] = kernel_values.real
             kernel_imag[v_order, ...] = kernel_values.imag
 
-
-
         # Construct tensor T (real/imag) and W(real/imag). 
 
-        T_real = torch.zeros(  (self.v_index.shape[0], self.v_index.shape[0], self.so3_grid.shape[0]), dtype=torch.float32) 
-        T_imag = torch.zeros(  (self.v_index.shape[0], self.v_index.shape[0], self.so3_grid.shape[0]), dtype=torch.float32) 
+        T_real = torch.zeros(  (self.v_index.shape[0], self.v_index.shape[0], self.output_so3_grid.shape[0]), dtype=torch.float32) 
+        T_imag = torch.zeros(  (self.v_index.shape[0], self.v_index.shape[0], self.output_so3_grid.shape[0]), dtype=torch.float32) 
 
         if self.standard_layer:
             # 1st layer does not need W.
-            W_real = torch.zeros(  (self.g_index.shape[0], self.g_index.shape[0], self.so3_grid.shape[0]), dtype=torch.float32) 
-            W_imag = torch.zeros(  (self.g_index.shape[0], self.g_index.shape[0], self.so3_grid.shape[0]), dtype=torch.float32) 
+            W_real = torch.zeros(  (self.g_index.shape[0], self.g_index.shape[0], self.output_so3_grid.shape[0]), dtype=torch.float32) 
+            W_imag = torch.zeros(  (self.g_index.shape[0], self.g_index.shape[0], self.output_so3_grid.shape[0]), dtype=torch.float32) 
 
-        for so3_index in range(self.so3_grid.shape[0]):
+        for so3_index in range(self.output_so3_grid.shape[0]):
             for v_order_m, v_idx_m in enumerate(self.v_index):
                 q, l, m = v_idx_m[0], v_idx_m[1], v_idx_m[2]
                 for v_order_s, v_idx_s in enumerate(self.v_index):
@@ -137,12 +144,12 @@ class Prototype(torch.nn.Module):
                     if q == q_ and l == l_:
                         # conj ( D_l^{s,m} (h) )
                         T_order = ( l * (2 * l - 1) * (2 * l + 1) )//3 + (s + l) * (2 * l + 1) + (m + l)
-                        T_real[v_order_m, v_order_s, so3_index] =  cache[T_order, so3_index, 0]
-                        T_imag[v_order_m, v_order_s, so3_index] =  -cache[T_order, so3_index, 1] # conj
+                        T_real[v_order_m, v_order_s, so3_index] =  output_cache[T_order, so3_index, 0]
+                        T_imag[v_order_m, v_order_s, so3_index] =  -output_cache[T_order, so3_index, 1] # conj
                     
         # 1st layer does not need W.
         if self.standard_layer:
-            for so3_index in range(self.so3_grid.shape[0]):
+            for so3_index in range(self.output_so3_grid.shape[0]):
                 for g_order_j, g_idx_j in enumerate(self.g_index):
                     b, j, n = g_idx_j[0], g_idx_j[1], g_idx_j[2]
                     for g_order_t, g_idx_t in enumerate(self.g_index):
@@ -150,14 +157,15 @@ class Prototype(torch.nn.Module):
                         if b == b_ and n == n_:# check later
                             W_order = ( b * (2 * b - 1) * (2 * b + 1) )//3 + (t + b) * (2 * b + 1) + (j + b)
                             
-                            W_real[g_order_j, g_order_t, so3_index] = cache[W_order, so3_index, 0]
-                            W_imag[g_order_j, g_order_t, so3_index] = cache[W_order, so3_index, 1]
+                            W_real[g_order_j, g_order_t, so3_index] = output_cache[W_order, so3_index, 0]
+                            W_imag[g_order_j, g_order_t, so3_index] = output_cache[W_order, so3_index, 1]
                     
         
-        self.register_buffer('so3_weight',  so3_weight)
-        self.register_buffer('cache', cache)
-        self.register_buffer('kernel_real', kernel_real)
-        self.register_buffer('kernel_imag', kernel_imag)
+        self.register_buffer('input_so3_weight',   input_so3_weight)
+        self.register_buffer('output_so3_weight',  output_so3_weight)
+        self.register_buffer('cache',              cache)
+        self.register_buffer('kernel_real',        kernel_real)
+        self.register_buffer('kernel_imag',        kernel_imag)
         
         if self.standard_layer:
             self.register_buffer('W_real', W_real)
@@ -170,16 +178,23 @@ class Prototype(torch.nn.Module):
 
         init_param   = torch.randn( self.in_channel, self.out_channel,  self.g_index.shape[0], self.v_index.shape[0])
 
+        init_param   = init_param * torch.sqrt( 2 * torch.tensor(self.v_index[:, 1]).view(1,1,1, -1) + 1) # normalized harmonics
+
+        init_param   = init_param * torch.sqrt( 2 * torch.tensor(self.g_index[:, 0]).view(1,1,-1, 1) + 1) # normalized wigners
+
+        init_param  /= np.sqrt(in_channel)
+        
         self.weights =  torch.nn.Parameter(init_param , requires_grad=True)
         
         
     def extra_repr(self):
         # Set the information of this module.
-        return 'input_features={}, output_features={}, filter size={}, basis params=(q={}, l={}, b={}), stride={}, padding={}, standard layer={}'.format(
+        return 'input_features={}, output_features={}, filter size={}, basis params=(q={}, l={}, b={}), so3_sampling={}, stride={}, padding={}, standard layer={}'.format(
             self.in_channel, self.out_channel, 2 * self.kernel_size + 1, self.sph_bessel_root, 
-            self.sph_harm_index, self.wigner_index, self.stride, 
+            self.sph_harm_index, self.wigner_index, self.so3_sampling, self.stride, 
             self.padding, self.standard_layer
         )        
+               
         
     def compute_G(self, batch_images):
         # compute the G functions from batch_images of size:
@@ -202,11 +217,11 @@ class Prototype(torch.nn.Module):
 
         if self.standard_layer:
 
-            H_real =  torch.einsum('bighwd, kg->bikhwd', batch_images[..., 0],  ( self.cache[:self.g_index.shape[0], :, 0] ) * self.so3_weight.view(1,-1)) + \
-            torch.einsum('bighwd, kg->bikhwd', batch_images[..., 1],  ( self.cache[:self.g_index.shape[0], :,1] ) * self.so3_weight.view(1,-1))
+            H_real =  torch.einsum('bighwd, kg->bikhwd', batch_images[..., 0],  ( self.cache[:, :, 0] ) * self.input_so3_weight.view(1,-1)) + \
+            torch.einsum('bighwd, kg->bikhwd', batch_images[..., 1],  ( self.cache[:self.g_index.shape[0], :,1] ) * self.input_so3_weight.view(1,-1))
 
-            H_imag = -torch.einsum('bighwd, kg->bikhwd', batch_images[..., 0],  ( self.cache[:self.g_index.shape[0], :, 1] ) * self.so3_weight.view(1,-1)) + \
-            torch.einsum('bighwd, kg->bikhwd', batch_images[..., 1],  ( self.cache[:self.g_index.shape[0], :, 0] ) * self.so3_weight.view(1,-1))
+            H_imag = -torch.einsum('bighwd, kg->bikhwd', batch_images[..., 0],  ( self.cache[:, :, 1] ) * self.input_so3_weight.view(1,-1)) + \
+            torch.einsum('bighwd, kg->bikhwd', batch_images[..., 1],  ( self.cache[:self.g_index.shape[0], :, 0] ) * self.input_so3_weight.view(1,-1))
         
         else:
             H_real =  batch_images[..., 0]
@@ -327,7 +342,7 @@ class Prototype(torch.nn.Module):
 
         # There are 8 einsum to compute...
 
-        # For memory efficiency, only 3 terms needed.
+        # For memory efficiency, only 3 + (temp) terms needed.
 
         output = torch.einsum('iokv, kKg->ioKvg',          self.weights, self.W_real)
         output = torch.einsum('ioKvg, vVg->ioKVg',               output, self.T_real)
@@ -366,16 +381,11 @@ class Prototype(torch.nn.Module):
 
         return torch.cat((output_real, output_imag), dim=-1) # Batch x Out Channel x Group x H x W x D
 
-
     def forward(self, batch_images):
         if self.standard_layer:
             return self.standard_forward(batch_images)
         else:
             return self.non_standard_forward(batch_images)
-        
-        
-        
-        
 
     def check_frame_score(self):
         local_mesh_mat = np.zeros((self.v_index.shape[0], self.v_index.shape[0] ), dtype=complex )
@@ -394,13 +404,14 @@ class Prototype(torch.nn.Module):
 
         print( 'local 3d mesh score: (largest gap between 1 and singular values)', np.max( [np.abs(1-np.min(svd_vals)) , np.abs(1-np.max(svd_vals))] ) )
 
-
         local_wigner_mat = np.zeros((self.g_index.shape[0], self.g_index.shape[0]), dtype=complex)
 
         for row in range(self.g_index.shape[0]):
             for col in range(self.g_index.shape[0]):
-                real_part = torch.sum( ( self.cache[row, :, 0] * self.cache[col, :, 0] +  self.cache[row, :, 1] * self.cache[col, :, 1] ) * self.so3_weight ).item()  * (4*np.pi**3/ self.so3_grid.shape[0] )
-                imag_part = torch.sum( (- self.cache[row, :, 0] * self.cache[col, :, 1] +  self.cache[row, :, 1] * self.cache[col, :, 0] ) * self.so3_weight ).item() * (4*np.pi**3/ self.so3_grid.shape[0] )
+                real_part = torch.sum( ( self.cache[row, :, 0] * self.cache[col, :, 0] + \
+                 self.cache[row, :, 1] * self.cache[col, :, 1] ) * self.input_so3_weight ).item()  * (4*np.pi**3/ self.input_so3_grid.shape[0] )
+                imag_part = torch.sum( (- self.cache[row, :, 0] * self.cache[col, :, 1] + \
+                 self.cache[row, :, 1] * self.cache[col, :, 0] ) * self.input_so3_weight ).item() * (4*np.pi**3/ self.input_so3_grid.shape[0] )
 
                 local_wigner_mat[row, col] = real_part + 1j * imag_part
 
@@ -409,7 +420,6 @@ class Prototype(torch.nn.Module):
         for row in range(self.g_index.shape[0]):
             for col in range(self.g_index.shape[0]):
                 local_wigner_mat[row, col] =  local_wigner_mat[row, col] / np.sqrt(local_wigner_mat[row, row].real   * local_wigner_mat[col, col].real)
-
 
         wigner_svd_vals = np.linalg.svd(local_wigner_mat, compute_uv=False)
 
