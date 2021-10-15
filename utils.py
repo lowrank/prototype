@@ -128,9 +128,9 @@ def spherical_harmonics(m , n, theta, phi):
     @param theta: azimuth angle, [0, 2* pi].
     @param phi:   polar angle,   [0, pi].
 
-    @return       complex float.
+    @return       complex float (unnormalized).
     """
-    return sc.sph_harm (m, n, theta, phi)
+    return sc.sph_harm (m, n, theta, phi) 
 
 def wiger_d_func(l, n, m, theta):
     if n == 0 and m == 0:
