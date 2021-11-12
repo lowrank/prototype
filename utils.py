@@ -6,7 +6,6 @@ import scipy.special as sc
 from scipy.optimize import brentq
 
 import ctypes
-import numpy as np
 
 def generate_so3_lebedev(n=26, n_gamma=8):
     """
