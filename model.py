@@ -429,7 +429,7 @@ class Prototype(torch.nn.Module):
         # normalize.
         for row in range(self.g_index.shape[0]):
             for col in range(self.g_index.shape[0]):
-                local_wigner_mat[row, col] =  local_wigner_mat[row, col] / (np.sqrt(local_wigner_mat[row, row].real   * local_wigner_mat[col, col].real) + 1e-6)
+                local_wigner_mat[row, col] =  local_wigner_mat[row, col] / (np.sqrt(local_wigner_mat[row, row].real   * local_wigner_mat[col, col].real))
 
         wigner_svd_vals = np.linalg.svd(local_wigner_mat, compute_uv=False)
         print( 'group frame score: (largest gap between 1 and singular values)', np.max( [np.abs(1-np.min(wigner_svd_vals)) , np.abs(1-np.max(wigner_svd_vals))] ) )
