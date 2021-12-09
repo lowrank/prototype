@@ -247,7 +247,7 @@ class Prototype(torch.nn.Module):
                         elif m < 0 and s > 0:
                             T[v_order_m, v_order_s, so3_index] = (-1)**(-m) * wignerD(l, -s, -m, beta, alpha, gamma) - wignerD(l, -s, m, beta, alpha, gamma)
                         elif m < 0 and s < 0:
-                            T[v_order_m, v_order_s, so3_index] = -(-1)**(-s) * wignerD(l, -s, m, beta, alpha, gamma) + (-1)** ( np.abs(m_-m) ) * wignerD(l, -s, -m,  beta, alpha, gamma)
+                            T[v_order_m, v_order_s, so3_index] = -(-1)**(-s) * wignerD(l, -s, m, beta, alpha, gamma) + (-1)** ( np.abs(s-m) ) * wignerD(l, -s, -m,  beta, alpha, gamma)
                         elif m < 0 and s == 0:
                             T[v_order_m, v_order_s, so3_index] = -np.sqrt(2) * wignerD(l, 0, m, beta, alpha, gamma)
                         elif m == 0 and s > 0:
