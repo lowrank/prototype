@@ -117,7 +117,7 @@ def integral(grid, w, images, l, m , n, rot):
         x = wignerD(l, m, n, b, a, c)
 
         # integration on Haar measure.    
-        ret = ret + w[so3_index] * (x  * images[:, :, so3_index, :, :, :].detach().cpu().numpy())
+        ret = ret + w[so3_index] * (x  * images[:, :, so3_index, :, :, :].detach().cpu().numpy()) * (4*np.pi**3/ grid.shape[0] )/np.sqrt(8*np.pi**2/(2*l+1))
 
     return ret
 
