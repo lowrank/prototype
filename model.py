@@ -241,7 +241,7 @@ class Prototype(torch.nn.Module):
                         elif m > 0 and s < 0:
                             T[v_order_m, v_order_s, so3_index] = wignerD(l, s , -m,  beta, alpha, gamma) + (-1)**m * wignerD(l, s , m,   beta, alpha, gamma)
                         elif m > 0 and s == 0:
-                            T[v_order_m, v_order_s, so3_index] =  np.sqrt(2) * wignerD(l, 0, m, beta, alpha, gamma)
+                            T[v_order_m, v_order_s, so3_index] =  np.sqrt(2) * (-1)**(m) * wignerD(l, 0, m, beta, alpha, gamma)
                         elif m < 0 and s > 0:
                             T[v_order_m, v_order_s, so3_index] = (-1)**(-m) * wignerD(l, -s, -m, beta, alpha, gamma) - wignerD(l, -s, m, beta, alpha, gamma)
                         elif m < 0 and s < 0:
@@ -256,6 +256,9 @@ class Prototype(torch.nn.Module):
                             T[v_order_m, v_order_s, so3_index] =  wignerD(l, 0, m, beta, alpha, gamma)
                         else:
                             pass 
+
+
+
 
         self.register_buffer('input_so3_weight',   input_so3_weight)
         self.register_buffer('output_so3_weight',  output_so3_weight)
