@@ -1,6 +1,8 @@
 import torch
 import torch.nn.functional as F
 import numpy as np
+from utils import generate_so3_lebedev, generate_so3_sampling_grid, spherical_bessel_roots, spherical_bessel_basis, cartesian_spherical, spherical_harmonics, wignerD
+
 
 class Prototype(torch.nn.Module):
     def __init__(self, in_channel=1, out_channel=1, \
