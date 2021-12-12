@@ -1,6 +1,7 @@
 import torch
 import torch.nn.functional as F
 import numpy as np
+
 from utils import generate_so3_lebedev, generate_so3_sampling_grid, spherical_bessel_roots, spherical_bessel_basis, cartesian_spherical, spherical_harmonics, wignerD
 
 
@@ -171,11 +172,11 @@ class Prototype(torch.nn.Module):
                                 W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(j+1) ) * wignerD(b, 0, -j, beta, alpha, gamma)
                             elif b == b_ and b == -n_ and t == 0:
                                 W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(n)) * wignerD(b, 0, j, beta, alpha, gamma)
-                        elif j > 0 and n == 0: # case 3
-                            if b == b_ and n == n_:
-                                W[g_order_j, g_order_t, so3_index] = wignerD(b, t, j, beta, alpha, gamma)
-                            elif b == b_ and n == - n_ and t is not 0:
-                                W[g_order_j, g_order_t, so3_index] = (-1) ** ( np.abs(j + n) ) * wignerD(b, t, -j , beta, alpha, gamma)
+                        elif j > 0 and n == 0: # case 3??
+                            if b == b_ and n_ == 0 and t is not 0:
+                                W[g_order_j, g_order_t, so3_index] = wignerD(b, t, j, beta, alpha, gamma) + (-1)**(m) * wignerD(l, t,- m, h_beta, h_alpha, h_gamma)
+                            elif b == b_ and n_ == 0 and t == 0:
+                                W[g_order_j, g_order_t, so3_index] = wignerD(b, t, j , beta, alpha, gamma)
                         elif j < 0 and n > 0: # case 4
                             if b == b_ and n == n_ and t is not 0:
                                 W[g_order_j, g_order_t, so3_index] =  (-1) ** (np.abs(t - j)) * wignerD(b, -t, -j, beta, alpha, gamma)
@@ -195,11 +196,9 @@ class Prototype(torch.nn.Module):
                             elif b == b_ and n == -n_ and t == 0:
                                 W[g_order_j, g_order_t, so3_index] = -(-1)**(np.abs(n)) * wignerD(b, t, j, beta, alpha, gamma )
                         elif j < 0 and n == 0: # case 6
-                            if b == b_ and n == n_ and t is not 0:
-                                W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(t - j)) * wignerD(b, -t, -j, beta, alpha, gamma)
-                            elif b == b_ and n == n_ and t is not 0:
-                                W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(t - n + 1)) * wignerD(b, - t, j,  beta, alpha, gamma)
-                            elif b == b_ and n == n_ and t == 0:
+                            if b == b_ and n_ == 0 and t is not 0:
+                                W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(t - j)) * wignerD(b, -t, -j, beta, alpha, gamma) + (-1) ** (np.abs(t - n + 1)) * wignerD(b, - t, j,  beta, alpha, gamma)
+                            elif b == b_ and n_ == 0 and t == 0:
                                 W[g_order_j, g_order_t, so3_index] = - wignerD(b, t, j, beta, alpha, gamma )
                         elif j == 0 and n > 0: # case 7
                             if b == b_ and n == n_ and t is not 0:
@@ -217,9 +216,7 @@ class Prototype(torch.nn.Module):
                                 W[g_order_j, g_order_t, so3_index] = wignerD(b, t, j, beta, alpha, gamma )
                         elif j == 0 and n == 0: # case 9
                             if b == b_ and n == n_ and t is not 0:
-                                W[g_order_j, g_order_t, so3_index] = wignerD(b, t, j, beta, alpha, gamma )
-                            elif b == b_ and n == -n_ and t is not 0:
-                                W[g_order_j, g_order_t, so3_index] = (-1)**(np.abs(j+n)) * wignerD(b, t, -j,beta, alpha, gamma  )
+                                W[g_order_j, g_order_t, so3_index] = wignerD(b, t, j, beta, alpha, gamma ) + (-1)**(np.abs(j+n)) * wignerD(b, t, -j,beta, alpha, gamma  )
                             elif b == b_ and n == n_ and t  == 0:
                                 W[g_order_j, g_order_t, so3_index] =  wignerD(b, t, j, beta, alpha, gamma )
                         else:
