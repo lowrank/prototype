@@ -174,7 +174,7 @@ class Prototype(torch.nn.Module):
                                 W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(n)) * wignerD(b, 0, j, beta, alpha, gamma)
                         elif j > 0 and n == 0: # case 3??
                             if b == b_ and n_ == 0 and t is not 0:
-                                W[g_order_j, g_order_t, so3_index] = wignerD(b, t, j, beta, alpha, gamma) + (-1)**(m) * wignerD(l, t,- m, h_beta, h_alpha, h_gamma)
+                                W[g_order_j, g_order_t, so3_index] = wignerD(b, t, j, beta, alpha, gamma) + (-1)**(m) * wignerD(l, t,- m, beta, alpha, gamma)
                             elif b == b_ and n_ == 0 and t == 0:
                                 W[g_order_j, g_order_t, so3_index] = wignerD(b, t, j , beta, alpha, gamma)
                         elif j < 0 and n > 0: # case 4
