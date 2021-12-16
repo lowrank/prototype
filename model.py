@@ -1,9 +1,7 @@
 import torch
 import torch.nn.functional as F
 import numpy as np
-
 from utils import generate_so3_lebedev, generate_so3_sampling_grid, spherical_bessel_roots, spherical_bessel_basis, cartesian_spherical, spherical_harmonics, wignerD
-
 
 class Prototype(torch.nn.Module):
     def __init__(self, in_channel=1, out_channel=1, \
@@ -158,67 +156,160 @@ class Prototype(torch.nn.Module):
                     for g_order_t, g_idx_t in enumerate(self.g_index):
                         b_, t, n_ = g_idx_t[0], g_idx_t[1], g_idx_t[2]
                         # 9 cases.
-                        if j > 0 and n > 0: # case 1
+                        if j > 0 and n > 0: 
+                        # case 1, m > 0, m_ > 0
+                            # l, m , m_ = 1, 1, 1
+                            # res = 0
+                            # for t in range(-l, l+1):
+                            #     res += wignerD(l, t, m, h_beta, h_alpha, h_gamma) * wignerD(l, t, m_, g_beta, g_alpha, g_gamma)
+                            #     res += (-1)**(m+m_) * wignerD(l, t, -m, h_beta, h_alpha, h_gamma) * wignerD(l, t,- m_, g_beta, g_alpha, g_gamma)
+                            # print(res - wignerD( l, m, m_,  u_beta, u_alpha, u_gamma ) ) 
                             if b == b_ and n == n_ :
                                 W[g_order_j, g_order_t, so3_index] = wignerD(b, t, j, beta, alpha, gamma)
                             elif b == b_ and n == -n_:
                                 W[g_order_j, g_order_t, so3_index] = (-1)** ( np.abs(j+n) ) * wignerD(b, t, -j, beta, alpha, gamma)
                         elif j > 0 and n < 0: # case 2
-                            if b == b_ and n == n_ and t is not 0:
+                        # case 2, m > 0, m_ < 0
+                            # l, m , m_ = 2, 1, -2
+                            # res = 0
+                            # for t in range(-l, l+1):
+                            #     if t is not 0:
+                            #         res += wignerD(l, t, m, h_beta, h_alpha, h_gamma) * wignerD(l, t, m_, g_beta, g_alpha, g_gamma)
+                            #         res += (-1)**(m+m_) * wignerD(l, t,- m, h_beta, h_alpha, h_gamma) * wignerD(l, t,- m_, g_beta, g_alpha, g_gamma)
+                            #     else:
+                            #         res += (-1)**(m_) * wignerD(l, t, m, h_beta, h_alpha, h_gamma) *  wignerD(l, t, -m_, g_beta, g_alpha, g_gamma)
+                            #         res += (-1)**(m+1) * wignerD(l, t, -m, h_beta, h_alpha, h_gamma) *  wignerD(l, t, m_, g_beta, g_alpha, g_gamma)
+                            # print(res - wignerD( l, m, m_,  u_beta, u_alpha, u_gamma ) ) 
+                            if b == b_ and n == n_ and t != 0:
                                 W[g_order_j, g_order_t, so3_index] = wignerD(b, t, j, beta, alpha, gamma)
-                            elif b == b_ and n == -n_ and t is not 0:
+                            elif b == b_ and n == -n_ and t != 0:
                                 W[g_order_j, g_order_t, so3_index] = (-1) ** ( np.abs(j + n) ) * wignerD(b, t, -j , beta, alpha, gamma)
                             elif b == b_ and n == n_ and t == 0:
                                 W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(j+1) ) * wignerD(b, 0, -j, beta, alpha, gamma)
-                            elif b == b_ and b == -n_ and t == 0:
+                            elif b == b_ and n == -n_ and t == 0:
                                 W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(n)) * wignerD(b, 0, j, beta, alpha, gamma)
-                        elif j > 0 and n == 0: # case 3??
-                            if b == b_ and n_ == 0 and t is not 0:
-                                W[g_order_j, g_order_t, so3_index] = wignerD(b, t, j, beta, alpha, gamma) + (-1)**(j) * wignerD(l, t,- j, beta, alpha, gamma)
+                        elif j > 0 and n == 0: 
+                        # case 3, m > 0, m_ = 0
+                            # l, m , m_ = 10, 1, 0
+                            # res = 0
+                            # for t in range(-l, l+1):
+                            #     if t is not 0:
+                            #         res += wignerD(l, t, m, h_beta, h_alpha, h_gamma) * wignerD(l, t, 0, g_beta, g_alpha, g_gamma)
+                            #         res += (-1)**(m) * wignerD(l, t,- m, h_beta, h_alpha, h_gamma) * wignerD(l, t, 0, g_beta, g_alpha, g_gamma)
+                            #     else:
+                            #         res +=  wignerD(l, t, m, h_beta, h_alpha, h_gamma) *  wignerD(l, t, 0, g_beta, g_alpha, g_gamma)
+                            # print(res - wignerD( l, m, m_,  u_beta, u_alpha, u_gamma ) ) 
+                            if b == b_ and n_ == 0 and t != 0:
+                                W[g_order_j, g_order_t, so3_index] = wignerD(b, t, j, beta, alpha, gamma) + (-1)**(j) * wignerD(b, t,- j, beta, alpha, gamma)
                             elif b == b_ and n_ == 0 and t == 0:
                                 W[g_order_j, g_order_t, so3_index] = wignerD(b, t, j , beta, alpha, gamma)
-                        elif j < 0 and n > 0: # case 4
-                            if b == b_ and n == n_ and t is not 0:
+                        elif j < 0 and n > 0: 
+                        # case 4, m < 0, m_ > 0
+                            # l, m , m_ = 5, -3, 3
+                            # res = 0
+                            # for t in range(-l, l+1):
+                            #     if t is not 0:
+                            #         res += (-1) ** (t - m_ + 1) * wignerD(l, -t, m, h_beta, h_alpha, h_gamma) * wignerD(l, t, -m_, g_beta, g_alpha, g_gamma)
+                            #         res += (-1)**(t - m) * wignerD(l, -t, -m, h_beta, h_alpha, h_gamma) * wignerD(l, t, m_, g_beta, g_alpha, g_gamma)
+                            #     else:
+                            #         res += (-1)**(m_ + m + 1) * wignerD(l, t, -m, h_beta, h_alpha, h_gamma) *  wignerD(l, t, -m_, g_beta, g_alpha, g_gamma)
+                            #         res += - wignerD(l, t, m, h_beta, h_alpha, h_gamma) *  wignerD(l, t, m_, g_beta, g_alpha, g_gamma)
+                            # print(res - wignerD( l, m, m_,  u_beta, u_alpha, u_gamma ) ) 
+                            if b == b_ and n == n_ and t != 0:
                                 W[g_order_j, g_order_t, so3_index] =  (-1) ** (np.abs(t - j)) * wignerD(b, -t, -j, beta, alpha, gamma)
-                            elif b == b_ and n == -n_ and t is not 0:
+                            elif b == b_ and n == -n_ and t != 0:
                                 W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(t - n + 1)) * wignerD(b, -t, j, beta, alpha, gamma)
                             elif b == b_ and n == n_ and t == 0:
                                 W[g_order_j, g_order_t, so3_index] = - wignerD(b, t, j, beta, alpha, gamma)
-                            elif b == b_ and n == -n_ and t== 0:
+                            elif b == b_ and n == -n_ and t == 0:
                                 W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(n + j + 1)) * wignerD(b, t, -j, beta, alpha, gamma)
-                        elif j < 0 and n < 0: # case 5
-                            if b == b_ and n == n_ and t is not 0:
+                        elif j < 0 and n < 0: 
+                        # case 5, m < 0, m_ < 0
+                            # l, m , m_ = 5, -3, -3
+
+                            # res = 0
+
+                            # for t in range(-l, l+1):
+                            #     if t is not 0:
+                            #         res += (-1) ** (-t - m_ + 1) * wignerD(l, -t, m, h_beta, h_alpha, h_gamma) * wignerD(l, t, -m_, g_beta, g_alpha, g_gamma)
+                            #         res += (-1)**(t - m) * wignerD(l, -t, -m, h_beta, h_alpha, h_gamma) * wignerD(l, t, m_, g_beta, g_alpha, g_gamma)
+                            #     else:
+                            #         res += (-1)**( m ) * wignerD(l, t, -m, h_beta, h_alpha, h_gamma) *  wignerD(l, t,  m_, g_beta, g_alpha, g_gamma)
+                            #         res += - (-1)**m_ * wignerD(l, t, m, h_beta, h_alpha, h_gamma) *  wignerD(l, t, -m_, g_beta, g_alpha, g_gamma)
+
+                            # print(res - wignerD( l, m, m_,  u_beta, u_alpha, u_gamma ) ) 
+                            if b == b_ and n == n_ and t != 0:
                                 W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(t - j)) * wignerD(b, -t, - j, beta, alpha, gamma)
-                            elif b == b_ and n == - n_ and t is not 0:
-                                W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(t - n + 1)) * wignerD(b, - t, j, beta, alpha, gamma)
+                            elif b == b_ and n == - n_ and t != 0:
+                                W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(-t - n + 1)) * wignerD(b, - t, j, beta, alpha, gamma)
                             elif b == b_ and n == n_ and t == 0:
                                 W[g_order_j, g_order_t, so3_index] = (-1)**(np.abs(j)) * wignerD(b, t, -j, beta, alpha, gamma )
                             elif b == b_ and n == -n_ and t == 0:
                                 W[g_order_j, g_order_t, so3_index] = -(-1)**(np.abs(n)) * wignerD(b, t, j, beta, alpha, gamma )
                         elif j < 0 and n == 0: # case 6
-                            if b == b_ and n_ == 0 and t is not 0:
-                                W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(t - j)) * wignerD(b, -t, -j, beta, alpha, gamma) + (-1) ** (np.abs(t - n + 1)) * wignerD(b, - t, j,  beta, alpha, gamma)
+                        # case 6, m < 0, m_ = 0
+                            # l, m , m_ = 5, -2, 0
+                            # res = 0
+                            # for t in range(-l, l+1):
+                            #     if t is not 0:
+                            #         res += (-1) ** (t - m_ + 1) * wignerD(l, -t, m, h_beta, h_alpha, h_gamma) * wignerD(l, t, 0, g_beta, g_alpha, g_gamma)
+                            #         res += (-1)**(t - m) * wignerD(l, -t, -m, h_beta, h_alpha, h_gamma) * wignerD(l, t, 0, g_beta, g_alpha, g_gamma)
+                            #     else:
+                            #         res += - wignerD(l, t, m, h_beta, h_alpha, h_gamma) *  wignerD(l, t, 0, g_beta, g_alpha, g_gamma)
+                            # print(res - wignerD( l, m, m_,  u_beta, u_alpha, u_gamma ) ) 
+                            if b == b_ and n_ == 0 and t != 0:
+                                W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(t - j)) * wignerD(b, -t, -j, beta, alpha, gamma) + (-1) ** (np.abs(t + 1)) * wignerD(b, - t, j,  beta, alpha, gamma)
                             elif b == b_ and n_ == 0 and t == 0:
                                 W[g_order_j, g_order_t, so3_index] = - wignerD(b, t, j, beta, alpha, gamma )
                         elif j == 0 and n > 0: # case 7
-                            if b == b_ and n == n_ and t is not 0:
+                        # case 7, m = 0, m_ > 0
+                            # l, m , m_ = 5, 0,  3
+                            # res = 0
+                            # for t in range(-l, l+1):
+                            #     if t is not 0:
+                            #         res += wignerD(l, t, m, h_beta, h_alpha, h_gamma) * wignerD(l, t, m_, g_beta, g_alpha, g_gamma)
+                            #         res += (-1)**(m+m_) * wignerD(l, t,- m, h_beta, h_alpha, h_gamma) * wignerD(l, t,- m_, g_beta, g_alpha, g_gamma)
+                            #     else:
+                            #         res +=  wignerD(l, t, m, h_beta, h_alpha, h_gamma) *  wignerD(l, t, m_, g_beta, g_alpha, g_gamma) 
+                            # print(res - wignerD( l, m, m_,  u_beta, u_alpha, u_gamma ) ) 
+                            if b == b_ and n == n_ and t != 0:
                                 W[g_order_j, g_order_t, so3_index] = wignerD(b, t, j, beta, alpha, gamma )
-                            elif b == b_ and n == -n_ and t is not 0:
+                            elif b == b_ and n == -n_ and t != 0:
                                 W[g_order_j, g_order_t, so3_index] = (-1)**(np.abs(j+n)) * wignerD(b, t, -j,beta, alpha, gamma  )
                             elif b == b_ and n == n_ and t  == 0:
                                 W[g_order_j, g_order_t, so3_index] =  wignerD(b, t, j, beta, alpha, gamma )
                         elif j == 0 and n < 0: # case 8
-                            if b == b_ and n == n_ and t is not 0:
+                      # case 8, m = 0, m_ < 0
+                            # l, m , m_ = 5,0, -2
+                            # res = 0
+                            # for t in range(-l, l+1):
+                            #     if t is not 0:
+                            #         res += (-1) ** (-t - m_ + 1) * wignerD(l, -t, m, h_beta, h_alpha, h_gamma) * wignerD(l, t, -m_, g_beta, g_alpha, g_gamma)
+                            #         res += (-1)**(t - m) * wignerD(l, -t, -m, h_beta, h_alpha, h_gamma) * wignerD(l, t, m_, g_beta, g_alpha, g_gamma)
+                            #     else:
+                            #         res += wignerD(l, t, m, h_beta, h_alpha, h_gamma) *  wignerD(l, t, m_, g_beta, g_alpha, g_gamma)
+                            # print(res - wignerD( l, m, m_,  u_beta, u_alpha, u_gamma ) ) 
+                            if b == b_ and n == n_ and t != 0:
                                 W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(t - j)) * wignerD(b, -t, -j, beta, alpha, gamma)
-                            elif b == b_ and n == -n_ and t is not 0:
-                                W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(t - n + 1)) * wignerD(b, -t, j, beta, alpha, gamma)
+                            elif b == b_ and n == -n_ and t != 0:
+                                W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(-t - n + 1)) * wignerD(b, -t, j, beta, alpha, gamma)
                             elif b == b_ and n == n_ and t == 0:
                                 W[g_order_j, g_order_t, so3_index] = wignerD(b, t, j, beta, alpha, gamma )
                         elif j == 0 and n == 0: # case 9
-                            if b == b_ and n == n_ and t is not 0:
-                                W[g_order_j, g_order_t, so3_index] = wignerD(b, t, j, beta, alpha, gamma ) + (-1)**(np.abs(j+n)) * wignerD(b, t, -j,beta, alpha, gamma  )
-                            elif b == b_ and n == n_ and t  == 0:
-                                W[g_order_j, g_order_t, so3_index] =  wignerD(b, t, j, beta, alpha, gamma )
+                        # case 9, m = 0, m_ = 0
+                            # l, m , m_ = 5, 0,  0
+                            # res = 0
+                            # for t in range(-l, l+1):
+                            #     if t is not 0:
+                            #         res += wignerD(l, t, m, h_beta, h_alpha, h_gamma) * wignerD(l, t, m_, g_beta, g_alpha, g_gamma)
+                            #         res += (-1)**(m+m_) * wignerD(l, t,- m, h_beta, h_alpha, h_gamma) * wignerD(l, t,- m_, g_beta, g_alpha, g_gamma)
+                            #     else:
+                            #         res +=  wignerD(l, t, m, h_beta, h_alpha, h_gamma) *  wignerD(l, t, m_, g_beta, g_alpha, g_gamma)
+                            # print(res - wignerD( l, m, m_,  u_beta, u_alpha, u_gamma ) ) 
+                            if b == b_ and n_ == 0 and t != 0:
+                                W[g_order_j, g_order_t, so3_index] =  2 * wignerD(b, t, 0, beta, alpha, gamma ) 
+                            elif b == b_ and n_ == 0 and t  == 0:
+                                W[g_order_j, g_order_t, so3_index] =  wignerD(b, t, 0, beta, alpha, gamma )
                         else:
                             pass
         # Construct tensor T.
@@ -234,19 +325,54 @@ class Prototype(torch.nn.Module):
                 for v_order_s, v_idx_s in enumerate(self.v_index):
                     q_, l_, s = v_idx_s[0], v_idx_s[1], v_idx_s[2]
                     if q == q_ and l == l_:
-                        # conj ( D_l^{s,m} (h) )
+                        # l, m = 11, 7
+                        # rhs = spherical_harmonics(m, l, u_theta, u_phi)
+                        # lhs = 0
+                        # for m_ in range(1, l+1):
+                        #     a = (-1)**m_ * wignerD(l, m_ , -m, beta, alpha, gamma) + (-1) ** (m_- m) * wignerD(l, m_  , m,  beta, alpha, gamma)
+                        #     lhs += a *  spherical_harmonics(m_, l, v_theta, v_phi)
+                        # for m_ in range(-l, 0):
+                        #     c = wignerD(l , m_  , -m,  beta, alpha, gamma) +  (-1) ** (m ) * wignerD(l, m_ , m,   beta, alpha, gamma)
+                        #     lhs += c *  spherical_harmonics(m_, l, v_theta, v_phi)
+                        # r = (-1)**(m)* wignerD(l, 0, m, beta, alpha, gamma)
+                        # lhs += np.sqrt(2) * r *  spherical_harmonics(0, l, v_theta, v_phi)
+                        # print(lhs  - rhs)
                         if m > 0 and s > 0:
                             T[v_order_m, v_order_s, so3_index] = (-1)**s * wignerD(l, s, -m, beta, alpha, gamma) + (-1)** ( np.abs(s -m) ) * wignerD(l, s , m,  beta, alpha, gamma) 
                         elif m > 0 and s < 0:
                             T[v_order_m, v_order_s, so3_index] = wignerD(l, s , -m,  beta, alpha, gamma) + (-1)**m * wignerD(l, s , m,   beta, alpha, gamma)
                         elif m > 0 and s == 0:
                             T[v_order_m, v_order_s, so3_index] =  np.sqrt(2) * (-1)**(m) * wignerD(l, 0, m, beta, alpha, gamma)
+                        # l, m = 8, -1
+                        # rhs = spherical_harmonics(m, l, u_theta, u_phi)
+                        # lhs = 0
+                        # for m_ in range(1, l+1):
+                        #     a = (-1)**(m) * wignerD(l, -m_, -m, beta, alpha, gamma) - wignerD(l, -m_, m, beta, alpha, gamma)
+                        #     lhs += a *  spherical_harmonics(m_, l, v_theta, v_phi)
+                        # for m_ in range(-l, 0):
+                        #     c = -(-1)**(m_) * wignerD(l, -m_, m, beta, alpha, gamma) + (-1)**(m_-m) * wignerD(l, -m_, -m,  beta, alpha, gamma)
+                        #     lhs += c *  spherical_harmonics(m_, l, v_theta, v_phi)
+                        # s = wignerD(l, 0, m, beta, alpha, gamma)
+                        # lhs += -np.sqrt(2) * s *  spherical_harmonics(0, l, v_theta, v_phi)
+                        # print(lhs- rhs)
                         elif m < 0 and s > 0:
                             T[v_order_m, v_order_s, so3_index] = (-1)**(-m) * wignerD(l, -s, -m, beta, alpha, gamma) - wignerD(l, -s, m, beta, alpha, gamma)
                         elif m < 0 and s < 0:
                             T[v_order_m, v_order_s, so3_index] = -(-1)**(-s) * wignerD(l, -s, m, beta, alpha, gamma) + (-1)** ( np.abs(s-m) ) * wignerD(l, -s, -m,  beta, alpha, gamma)
                         elif m < 0 and s == 0:
                             T[v_order_m, v_order_s, so3_index] = -np.sqrt(2) * wignerD(l, 0, m, beta, alpha, gamma)
+                        # l, m = 12, 0
+                        # rhs = spherical_harmonics(m, l, u_theta, u_phi)
+                        # lhs = 0
+                        # for m_ in range(1, l+1):
+                        #     a = (-1)**m_ * wignerD(l, m_ , -m, beta, alpha, gamma) + (-1) ** (m_- m) * wignerD(l, m_  , m,  beta, alpha, gamma)
+                        #     lhs += a *  spherical_harmonics(m_, l, v_theta, v_phi) / np.sqrt(2) 
+                        # for m_ in range(-l, 0):
+                        #     c = wignerD(l , m_  , -m,  beta, alpha, gamma) +  (-1) ** (m ) * wignerD(l, m_ , m,   beta, alpha, gamma)
+                        #     lhs += c *  spherical_harmonics(m_, l, v_theta, v_phi) / np.sqrt(2)
+                        # r = wignerD(l, 0,0, beta, alpha, gamma)
+                        # lhs += r *  spherical_harmonics(0, l, v_theta, v_phi)
+                        # print(lhs  - rhs)
                         elif m == 0 and s > 0:
                             T[v_order_m, v_order_s, so3_index] = ( (-1)**s * wignerD(l, s , -m, beta, alpha, gamma) + (-1)**( np.abs(s -m) ) * wignerD(l, s , m,  beta, alpha, gamma) ) / np.sqrt(2)
                         elif m == 0 and s < 0:
