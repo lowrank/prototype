@@ -4,6 +4,8 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 from scipy.ndimage import map_coordinates
 
+from utils import wigerD
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Rotate Image in space with Euler angles (alpha, beta, gamma)
