@@ -120,16 +120,25 @@ def cartesian_spherical(x,y,z):
     r = np.sqrt(rho2 + z**2)
     return azimuth, polar, r
 
-def spherical_harmonics(m , n, theta, phi):
+"""
+@update: realization.
+"""
+def spherical_harmonics(m, n, theta, phi):
     """
     @param m:     order of spherical harmonics.
     @param n:     degree |m| \le n.
     @param theta: azimuth angle, [0, 2* pi].
     @param phi:   polar angle,   [0, pi].
 
-    @return       complex float (unnormalized).
+    @return       real form of spherical harmonics (Wikipedia)
     """
-    return sc.sph_harm (m, n, theta, phi) 
+    val = sc.sph_harm(np.abs(m), n, theta, phi)
+    if m < 0:
+        return val.imag * np.sqrt(2) * (-1)**(-m) 
+    elif m == 0:
+        return val.real 
+    else:
+        return val.real * np.sqrt(2) * (-1)**m
 
 def wiger_d_func(l, n, m, theta):
     if n == 0 and m == 0:
@@ -171,11 +180,21 @@ def wiger_d_func(l, n, m, theta):
 
         return d0
 
-
 def wignerD(b, j, n, beta, alpha, gamma):
     """
     @param D, j, n, beta, alpha, gamma
-    @return complex valued D_b^{jn}(beta, alpha,  gamma).
+    @return real valued wigner D function, note it is different.
     """
-    val = wiger_d_func(b, j, n, beta) * np.exp(-1j * (j * alpha + n * gamma)) 
-    return val.real, val.imag
+    val = wiger_d_func(b, j, n, beta) * np.exp(-1j * ( j * alpha + n * gamma)) 
+    if j > 0:
+        return val.real 
+    elif j < 0 :
+        return val.imag
+    elif j == 0 and n > 0:
+        return val.real
+    elif j == 0 and n < 0:
+        return val.imag 
+    elif j == 0 and n == 0: # the function is real itself.
+        return val.real
+    else:
+        return 0

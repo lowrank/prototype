@@ -97,14 +97,14 @@ def rotate_image_mat(images, mat, interp=1):
     return output
 
 
-
+# images : B X C X (Group) X H X W X D
 def integral(grid, w, images, l, m , n, rot): 
     if rot is not None:
         alpha_, beta_, gamma_ = convert_to_euler_angles(rot)
     else:
         alpha_, beta_, gamma_ = 0, 0, 0
 
-    ret = np.zeros((images.shape[0], images.shape[1], images.shape[3], images.shape[4], images.shape[5], images.shape[6]), dtype=float)
+    ret = np.zeros((images.shape[0], images.shape[1], images.shape[3], images.shape[4], images.shape[5]), dtype=float)
     for so3_index in range(grid.shape[0]):
         beta, alpha, gamma = grid[so3_index, :]
         
@@ -116,13 +116,10 @@ def integral(grid, w, images, l, m , n, rot):
 
         a, b, c = convert_to_euler_angles(Q)
 
-        x, y = wignerD(l, m, n, b, a, c)
+        x = wignerD(l, m, n, b, a, c)
 
         # integration on Haar measure.    
-        ret[..., 0] = ret[..., 0] + w[so3_index] * (x  * images[:, :, so3_index, :, :, :, 0].detach().cpu().numpy() - \
-                                y * images[:, :, so3_index, :, :, :, 1].detach().cpu().numpy()  ) * (4*np.pi**3/ grid.shape[0] )/np.sqrt(8*np.pi**2/(2*l+1))
-        ret[..., 1] = ret[..., 1] + w[so3_index] * (y  * images[:, :, so3_index, :, :, :, 0].detach().cpu().numpy() + \
-                                x * images[:, :, so3_index, :, :, :, 1].detach().cpu().numpy()  ) * (4*np.pi**3/ grid.shape[0] )/np.sqrt(8*np.pi**2/(2*l+1))
+        ret = ret + w[so3_index] * (x  * images[:, :, so3_index, :, :, :].detach().cpu().numpy()) * (4*np.pi**3/ grid.shape[0] )/np.sqrt(8*np.pi**2/(2*l+1))
 
     return ret
 
@@ -132,99 +129,6 @@ def convert_to_euler_angles(mat):
     beta = np.arctan2(-mat[0,2] * np.cos(gamma) + mat[1, 2] * np.sin(gamma), mat[2,2])
 
     return alpha, beta, gamma
-
-
-def orthogonality_under_rot(rot): 
-
-    alpha_, beta_, gamma_ = convert_to_euler_angles(rot)
-
-
-    ret = np.zeros((P.g_index.shape[0],P.g_index.shape[0]), dtype=complex)
-
-    for row in range(P.g_index.shape[0]):
-        L, j, n = P.g_index[row]
-        for col in range(P.g_index.shape[0]):
-            L_, j_, n_ = P.g_index[col]
-
-            for so3_index in range(P.so3_grid.shape[0]):
-                beta, alpha, gamma = P.so3_grid[so3_index, :]
-                
-                Z = R.from_euler('zyz', [gamma, beta,  alpha], degrees=False).as_matrix()
-
-                Q = rot.transpose() @ Z 
-
-                a, b, c = convert_to_euler_angles(Q)
-
-                x, y =  wignerD(L, j,n,b,a, c)
-                x_, y_= wignerD(L_, j_, n_, b, a, c)
-
-                # integration on Haar measure of (alpha, beta, gamma)
-                ret[row, col] += (x + 1j*y) * (x_-1j*y_) * np.sin(beta) * (4*np.pi**3/ P.so3_grid.shape[0] )
-   
-            ret[row, col] /= np.sqrt( (8*np.pi**2/(2*P.g_index[row][0]+1) ) * (8*np.pi**2/(2*P.g_index[col][0]+1) ) )
-            
-
-    return ret
-
-
-
-def two_layers(P, Q, images, rotation):
-
-    rot_images_real = rotate_image_mat(images[0, 0, ..., 0].detach().cpu().numpy(), rotation)
-    rot_images_imag = rotate_image_mat(images[0, 0, ..., 1].detach().cpu().numpy(), rotation)
-
-    _new_images =  torch.zeros(images.shape, dtype=torch.float32)
-
-    _new_images[0, 0, ..., 0] = torch.tensor( rot_images_real ) # copy 
-    _new_images[0, 0, ..., 1] = torch.tensor( rot_images_imag ) # copy 
-
-    _new_images = _new_images.to(device)
-
-    transform_rot_images = P(_new_images)
-    transform_transform_rot_images = Q(transform_rot_images)
-
-    transform_images = P(images)
-    transform_transform_images = Q(transform_images)
-
-    _rot_transform_transform_images_real = rotate_image_mat(transform_transform_images[0, 0, :, ..., 0].detach().cpu().numpy(), rotation)
-    _rot_transform_transform_images_imag = rotate_image_mat(transform_transform_images[0, 0, :, ..., 1].detach().cpu().numpy(), rotation)
-
-    rot_transform_transform_images =  torch.zeros(transform_images.shape, dtype=torch.float32)
-
-    rot_transform_transform_images [0, 0, :, ..., 0] = torch.tensor( _rot_transform_transform_images_real ) # copy 
-    rot_transform_transform_images [0, 0, :, ..., 1] = torch.tensor( _rot_transform_transform_images_imag ) # copy 
-
-    rot_transform_transform_images = rot_transform_transform_images.to(device)
-
-    return rot_transform_transform_images, transform_transform_rot_images
-
-
-def one_layer(P, images, rotation):
-
-    rot_images_real = rotate_image_mat(images[0, 0,:, ..., 0].detach().cpu().numpy(), rotation)
-    rot_images_imag = rotate_image_mat(images[0, 0,:, ..., 1].detach().cpu().numpy(), rotation)
-
-    _new_images =  torch.zeros(images.shape, dtype=torch.float32)
-
-    _new_images[0, 0,:, ..., 0] = torch.tensor( rot_images_real ) # copy 
-    _new_images[0, 0,:, ..., 1] = torch.tensor( rot_images_imag ) # copy 
-
-    _new_images = _new_images.to(device)
-
-    transform_rot_images = P(_new_images)
-    transform_images = P(images)
-
-    _rot_transform_images_real = rotate_image_mat(transform_images[0, 0, :, ..., 0].detach().cpu().numpy(), rotation)
-    _rot_transform_images_imag = rotate_image_mat(transform_images[0, 0, :, ..., 1].detach().cpu().numpy(), rotation)
-
-    rot_transform_images =  torch.zeros(transform_images.shape, dtype=torch.float32)
-
-    rot_transform_images [0, 0, :, ..., 0] = torch.tensor( _rot_transform_images_real ) # copy 
-    rot_transform_images [0, 0, :, ..., 1] = torch.tensor( _rot_transform_images_imag ) # copy 
-
-    rot_transform_images = rot_transform_images.to(device)
-
-    return rot_transform_images, transform_rot_images
 
 
 def check_equiv_weak_formula(grid, w, L, tr, rt, rotation):
@@ -246,13 +150,11 @@ def check_equiv_weak_formula(grid, w, L, tr, rt, rotation):
 
 def check_equivariance(network, images, rotation):
 
-    rot_images_real = rotate_image_mat(images[0, 0, ..., 0].detach().cpu().numpy(), rotation)
-    rot_images_imag = rotate_image_mat(images[0, 0, ..., 1].detach().cpu().numpy(), rotation)
+    _rot_images = torch.tensor( rotate_image_mat(images[0, 0, ...].detach().cpu().numpy(), rotation, interp=1) )
 
     rot_images =  torch.zeros(images.shape, dtype=torch.float32)
 
-    rot_images[0, 0, ..., 0] = torch.tensor( rot_images_real ) # copy 
-    rot_images[0, 0, ..., 1] = torch.tensor( rot_images_imag ) # copy 
+    rot_images[0, 0, ...] = torch.tensor( _rot_images ) # copy 
 
     rot_images = rot_images.to(device)
 
@@ -260,13 +162,11 @@ def check_equivariance(network, images, rotation):
 
     transform_images = network(images)
 
-    _rot_transform_images_real = rotate_image_mat(transform_images[0, 0, :, ..., 0].detach().cpu().numpy(), rotation)
-    _rot_transform_images_imag = rotate_image_mat(transform_images[0, 0, :, ..., 1].detach().cpu().numpy(), rotation)
+    _rot_transform_images = rotate_image_mat(transform_images[0, 0, :, ...].detach().cpu().numpy(), rotation, interp=1)
 
     rot_transform_images =  torch.zeros(transform_images.shape, dtype=torch.float32)
 
-    rot_transform_images [0, 0, :, ..., 0] = torch.tensor( _rot_transform_images_real ) # copy 
-    rot_transform_images [0, 0, :, ..., 1] = torch.tensor( _rot_transform_images_imag ) # copy 
+    rot_transform_images [0, 0, :, ...] = torch.tensor( _rot_transform_images) # copy 
 
     rot_transform_images = rot_transform_images.to(device)
 

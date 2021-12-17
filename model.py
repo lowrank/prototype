@@ -36,20 +36,19 @@ class Prototype(torch.nn.Module):
 
         self.v_index          = np.stack((_root_grid, _harm_degree, _sph_grid), axis=1)    
 
-        _wiger_degree         = np.concatenate( [ [index] * (2 * index + 1 )**2 for index in range(self.wigner_index + 1)] )
+        _wiger_degree         = np.concatenate( [ [index] * (2 * index + 1 )**2  for index in range(self.wigner_index + 1)] )  # number of basis changed.
 
         _wiger_orders         = np.array([], dtype=np.int32).reshape(0, 2)    
-
-        # it seems swapping _j, _n is better in later computation when cutting the tensor.
        
-        for index in range(self.wigner_index + 1):
-            _j, _n = np.meshgrid( np.arange(-index, index  + 1) , np.arange(-index, index  + 1), sparse=False, indexing="ij") 
+        for index in range(self.wigner_index + 1):           
+
+            _j, _n = np.meshgrid( np.arange(-index, index  + 1), np.arange(-index, index  + 1), sparse=False, indexing="ij") 
             _j, _n = _j.flatten(), _n.flatten()
 
             _local_index = np.stack((_j, _n), axis=1)                                                                   # (2 * index + 1)**2 x 2. 
             _wiger_orders = np.row_stack( (_wiger_orders, _local_index) ) 
 
-        self.g_index = np.column_stack( (_wiger_degree, _wiger_orders))                                                 
+        self.g_index = np.column_stack( (_wiger_degree, _wiger_orders) )                                                 
 
         roots  = spherical_bessel_roots(self.sph_harm_index, self.sph_bessel_root) 
 
@@ -62,117 +61,340 @@ class Prototype(torch.nn.Module):
 
         # generate cache
 
-        cache  = torch.zeros( ( self.g_index.shape[0], self.input_so3_grid.shape[0], 2) , dtype=torch.float32)
+        """
+        @update: cache will drop the last index.
+        
+        The (input) cache is used for input SO3 grid and output_cache is used at output SO3 grid.
+        """
+
+        input_wigner_basis  = torch.zeros( ( self.g_index.shape[0], self.input_so3_grid.shape[0]) , dtype=torch.float32)
+
         for g_order, g_idx in enumerate(self.g_index):
             for so3_idx in range(self.input_so3_grid.shape[0]):
                 beta, alpha, gamma = self.input_so3_grid[so3_idx, :]
-                cache[g_order, so3_idx, 0], cache[g_order, so3_idx, 1] =  wignerD(g_idx[0], g_idx[1], g_idx[2], beta, alpha, gamma) 
+
+                input_wigner_basis[g_order, so3_idx] =  wignerD(g_idx[0], g_idx[1], g_idx[2], beta, alpha, gamma) 
 
         if self.sph_harm_index <= self.wigner_index:
             # this is stored on GPU with torch tensor.
+
             
-            output_cache = torch.zeros( ( self.g_index.shape[0], self.output_so3_grid.shape[0], 2) , dtype=torch.float32)
+            output_wigner_basis = torch.zeros( ( self.g_index.shape[0], self.output_so3_grid.shape[0]) , dtype=torch.float32)
 
             for g_order, g_idx in enumerate(self.g_index):
                 for so3_idx in range(self.output_so3_grid.shape[0]):
                     beta, alpha, gamma = self.output_so3_grid[so3_idx, :]
-                    output_cache[g_order, so3_idx, 0], output_cache[g_order, so3_idx, 1] =  wignerD(g_idx[0], g_idx[1], g_idx[2], beta, alpha, gamma) 
+                    output_wigner_basis[g_order, so3_idx] =  wignerD(g_idx[0], g_idx[1], g_idx[2], beta, alpha, gamma) 
 
         else:
-            _cache_degree         = np.concatenate( [ [index] * (2 * index + 1 )**2 for index in range(self.sph_harm_index + 1)] )
-            _cache_orders         = np.array([], dtype=np.int32).reshape(0, 2)    
+            _tmp_degree         = np.concatenate( [ [index] * (2 * index + 1)**2 for index in range(self.sph_harm_index + 1)] )
+            _tmp_orders         = np.array([], dtype=np.int32).reshape(0, 2)    
 
-            for index in range(self.sph_harm_index + 1):
-                _j, _n = np.meshgrid( np.arange(-index, index  + 1) , np.arange(-index, index  + 1), sparse=False, indexing="ij") 
+            for index in range(self.sph_harm_index + 1): 
+
+                _j, _n = np.meshgrid(np.arange(-index, index  + 1) ,  np.arange(-index, index  + 1), sparse=False, indexing="ij") 
                 _j, _n = _j.flatten(), _n.flatten()
 
-                _local_index = np.stack((_j, _n), axis=1)                                                                 
-                _cache_orders = np.row_stack( (_cache_orders, _local_index) ) 
+                _tmp_index = np.stack((_j, _n), axis=1)                                                                 
+                _tmp_orders = np.row_stack( (_tmp_orders, _tmp_index) ) 
 
-            _cache_index = np.column_stack( (_cache_degree, _cache_orders))
+            _tmp_index = np.column_stack( (_tmp_degree, _tmp_orders))
                     
-            output_cache = torch.zeros( ( _cache_index.shape[0], self.output_so3_grid.shape[0], 2) , dtype=torch.float32)
+            output_wigner_basis = torch.zeros( ( _tmp_index.shape[0], self.output_so3_grid.shape[0]) , dtype=torch.float32)
 
-            for g_order, g_idx in enumerate(_cache_index):
+            for g_order, g_idx in enumerate(_tmp_index):
                 for so3_idx in range(self.output_so3_grid.shape[0]):
                     beta, alpha, gamma = self.output_so3_grid[so3_idx, :]
-                    output_cache[g_order, so3_idx, 0], output_cache[g_order, so3_idx, 1] =  wignerD(g_idx[0], g_idx[1], g_idx[2], beta, alpha, gamma)      
+                    output_wigner_basis[g_order, so3_idx]=  wignerD(g_idx[0], g_idx[1], g_idx[2], beta, alpha, gamma)    
+
 
         # filters with respect to spherical harmonics.
         kernel_range = np.arange(-self.kernel_size, self.kernel_size + 1)
         _x, _y, _z   = np.meshgrid(kernel_range, kernel_range, kernel_range, sparse=False, indexing="ij")
         _x, _y, _z   = _x.flatten(), _y.flatten(), _z.flatten()  
         kernel_grid  = np.stack((_x, _y, _z), axis=1)                                                                   # {(2 * kernel + 1)^3 } x 3.
-        kernel_grid  = kernel_grid / self.kernel_size      
+        kernel_grid  = kernel_grid / (self.kernel_size + 1)                                                             # todo: weights to be reformulated.
 
         theta, phi, r = cartesian_spherical(kernel_grid[:, 0], kernel_grid[:, 1], kernel_grid[:, 2])
 
         mask   = r <= 1
 
-        kernel_real = torch.zeros( (self.v_index.shape[0], 2 * self.kernel_size + 1 , 2 * self.kernel_size + 1  , 2 * self.kernel_size + 1), dtype=torch.float32)
-        kernel_imag = torch.zeros( (self.v_index.shape[0], 2 * self.kernel_size + 1 , 2 * self.kernel_size + 1  , 2 * self.kernel_size + 1), dtype=torch.float32)
-
+        kernel = torch.zeros( (self.v_index.shape[0], 2 * self.kernel_size + 1 , 2 * self.kernel_size + 1  , 2 * self.kernel_size + 1), dtype=torch.float32)
+ 
         # Construct kernel, this is inefficient.
         for v_order, v_idx in enumerate(self.v_index):
             q, l, m = v_idx[0], v_idx[1], v_idx[2]
 
             # kernel_values shape: { (2 * kernel + 1)^3 } complex valued. 
             # q starts from 1.
-            kernel_values = mask * spherical_bessel_basis(l, roots[l, q-1], r) * np.conj( spherical_harmonics(m, l, theta, phi) )  / np.sqrt(2 * l + 1) / ((2 * self.kernel_size + 1)**3 ) 
-            kernel_values = torch.tensor(kernel_values, dtype=torch.complex64).view(2 * self.kernel_size + 1,  2 * self.kernel_size + 1,  2 * self.kernel_size + 1)
+            """
+            @update: spherical harmonic is real now.
+            """
+            kernel_values = mask * spherical_bessel_basis(l, roots[l, q-1], r) * ( spherical_harmonics(m, l, theta, phi) )  / np.sqrt(2 * l + 1) / ((2 * self.kernel_size + 1)**3 ) 
+            kernel_values = torch.tensor(kernel_values, dtype=torch.float32).view(2 * self.kernel_size + 1,  2 * self.kernel_size + 1,  2 * self.kernel_size + 1)
 
-            # ===> {Q x (L+1)^2 }  x (2K+1) x (2K+1) x (2K+1)  x 2
-            # Typical Data Size: 3 x 16 x 11^3 x 2 x (float32) = 0.48 MBytes.
-            kernel_real[v_order, ...] = kernel_values.real
-            kernel_imag[v_order, ...] = kernel_values.imag
+            kernel[v_order, ...] = kernel_values
 
-        # Construct tensor T (real/imag) and W(real/imag). 
+        """
+        @flag: updated to this line.
 
-        T_real = torch.zeros(  (self.v_index.shape[0], self.v_index.shape[0], self.output_so3_grid.shape[0]), dtype=torch.float32) 
-        T_imag = torch.zeros(  (self.v_index.shape[0], self.v_index.shape[0], self.output_so3_grid.shape[0]), dtype=torch.float32) 
+        @todo: there is no real/imag anymore.
+        """  
+
+        # Construct tensor W. 
 
         if self.standard_layer:
             # 1st layer does not need W.
-            W_real = torch.zeros(  (self.g_index.shape[0], self.g_index.shape[0], self.output_so3_grid.shape[0]), dtype=torch.float32) 
-            W_imag = torch.zeros(  (self.g_index.shape[0], self.g_index.shape[0], self.output_so3_grid.shape[0]), dtype=torch.float32) 
+            W = torch.zeros(  (self.g_index.shape[0], self.g_index.shape[0], self.output_so3_grid.shape[0]), dtype=torch.float32) 
+
+            for so3_index in range(self.output_so3_grid.shape[0]):
+
+                beta, alpha, gamma = self.output_so3_grid[so3_index, :]
+
+                for g_order_j, g_idx_j in enumerate(self.g_index):
+                    b, j, n = g_idx_j[0], g_idx_j[1], g_idx_j[2]
+                    for g_order_t, g_idx_t in enumerate(self.g_index):
+                        b_, t, n_ = g_idx_t[0], g_idx_t[1], g_idx_t[2]
+                        # 9 cases.
+                        if j > 0 and n > 0: 
+                        # case 1, m > 0, m_ > 0
+                            # l, m , m_ = 1, 1, 1
+                            # res = 0
+                            # for t in range(-l, l+1):
+                            #     res += wignerD(l, t, m, h_beta, h_alpha, h_gamma) * wignerD(l, t, m_, g_beta, g_alpha, g_gamma)
+                            #     res += (-1)**(m+m_) * wignerD(l, t, -m, h_beta, h_alpha, h_gamma) * wignerD(l, t,- m_, g_beta, g_alpha, g_gamma)
+                            # print(res - wignerD( l, m, m_,  u_beta, u_alpha, u_gamma ) ) 
+                            if b == b_ and n == n_ :
+                                W[g_order_j, g_order_t, so3_index] = wignerD(b, t, j, beta, alpha, gamma)
+                            elif b == b_ and n == -n_:
+                                W[g_order_j, g_order_t, so3_index] = (-1)** ( np.abs(j+n) ) * wignerD(b, t, -j, beta, alpha, gamma)
+                        elif j > 0 and n < 0: # case 2
+                        # case 2, m > 0, m_ < 0
+                            # l, m , m_ = 2, 1, -2
+                            # res = 0
+                            # for t in range(-l, l+1):
+                            #     if t is not 0:
+                            #         res += wignerD(l, t, m, h_beta, h_alpha, h_gamma) * wignerD(l, t, m_, g_beta, g_alpha, g_gamma)
+                            #         res += (-1)**(m+m_) * wignerD(l, t,- m, h_beta, h_alpha, h_gamma) * wignerD(l, t,- m_, g_beta, g_alpha, g_gamma)
+                            #     else:
+                            #         res += (-1)**(m_) * wignerD(l, t, m, h_beta, h_alpha, h_gamma) *  wignerD(l, t, -m_, g_beta, g_alpha, g_gamma)
+                            #         res += (-1)**(m+1) * wignerD(l, t, -m, h_beta, h_alpha, h_gamma) *  wignerD(l, t, m_, g_beta, g_alpha, g_gamma)
+                            # print(res - wignerD( l, m, m_,  u_beta, u_alpha, u_gamma ) ) 
+                            if b == b_ and n == n_ and t != 0:
+                                W[g_order_j, g_order_t, so3_index] = wignerD(b, t, j, beta, alpha, gamma)
+                            elif b == b_ and n == -n_ and t != 0:
+                                W[g_order_j, g_order_t, so3_index] = (-1) ** ( np.abs(j + n) ) * wignerD(b, t, -j , beta, alpha, gamma)
+                            elif b == b_ and n == n_ and t == 0:
+                                W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(j+1) ) * wignerD(b, 0, -j, beta, alpha, gamma)
+                            elif b == b_ and n == -n_ and t == 0:
+                                W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(n)) * wignerD(b, 0, j, beta, alpha, gamma)
+                        elif j > 0 and n == 0: 
+                        # case 3, m > 0, m_ = 0
+                            # l, m , m_ = 10, 1, 0
+                            # res = 0
+                            # for t in range(-l, l+1):
+                            #     if t is not 0:
+                            #         res += wignerD(l, t, m, h_beta, h_alpha, h_gamma) * wignerD(l, t, 0, g_beta, g_alpha, g_gamma)
+                            #         res += (-1)**(m) * wignerD(l, t,- m, h_beta, h_alpha, h_gamma) * wignerD(l, t, 0, g_beta, g_alpha, g_gamma)
+                            #     else:
+                            #         res +=  wignerD(l, t, m, h_beta, h_alpha, h_gamma) *  wignerD(l, t, 0, g_beta, g_alpha, g_gamma)
+                            # print(res - wignerD( l, m, m_,  u_beta, u_alpha, u_gamma ) ) 
+                            if b == b_ and n_ == 0 and t != 0:
+                                W[g_order_j, g_order_t, so3_index] = wignerD(b, t, j, beta, alpha, gamma) + (-1)**(j) * wignerD(b, t,- j, beta, alpha, gamma)
+                            elif b == b_ and n_ == 0 and t == 0:
+                                W[g_order_j, g_order_t, so3_index] = wignerD(b, t, j , beta, alpha, gamma)
+                        elif j < 0 and n > 0: 
+                        # case 4, m < 0, m_ > 0
+                            # l, m , m_ = 5, -3, 3
+                            # res = 0
+                            # for t in range(-l, l+1):
+                            #     if t is not 0:
+                            #         res += (-1) ** (t - m_ + 1) * wignerD(l, -t, m, h_beta, h_alpha, h_gamma) * wignerD(l, t, -m_, g_beta, g_alpha, g_gamma)
+                            #         res += (-1)**(t - m) * wignerD(l, -t, -m, h_beta, h_alpha, h_gamma) * wignerD(l, t, m_, g_beta, g_alpha, g_gamma)
+                            #     else:
+                            #         res += (-1)**(m_ + m + 1) * wignerD(l, t, -m, h_beta, h_alpha, h_gamma) *  wignerD(l, t, -m_, g_beta, g_alpha, g_gamma)
+                            #         res += - wignerD(l, t, m, h_beta, h_alpha, h_gamma) *  wignerD(l, t, m_, g_beta, g_alpha, g_gamma)
+                            # print(res - wignerD( l, m, m_,  u_beta, u_alpha, u_gamma ) ) 
+                            if b == b_ and n == n_ and t != 0:
+                                W[g_order_j, g_order_t, so3_index] =  (-1) ** (np.abs(t - j)) * wignerD(b, -t, -j, beta, alpha, gamma)
+                            elif b == b_ and n == -n_ and t != 0:
+                                W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(t - n + 1)) * wignerD(b, -t, j, beta, alpha, gamma)
+                            elif b == b_ and n == n_ and t == 0:
+                                W[g_order_j, g_order_t, so3_index] = - wignerD(b, t, j, beta, alpha, gamma)
+                            elif b == b_ and n == -n_ and t == 0:
+                                W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(n + j + 1)) * wignerD(b, t, -j, beta, alpha, gamma)
+                        elif j < 0 and n < 0: 
+                        # case 5, m < 0, m_ < 0
+                            # l, m , m_ = 5, -3, -3
+
+                            # res = 0
+
+                            # for t in range(-l, l+1):
+                            #     if t is not 0:
+                            #         res += (-1) ** (-t - m_ + 1) * wignerD(l, -t, m, h_beta, h_alpha, h_gamma) * wignerD(l, t, -m_, g_beta, g_alpha, g_gamma)
+                            #         res += (-1)**(t - m) * wignerD(l, -t, -m, h_beta, h_alpha, h_gamma) * wignerD(l, t, m_, g_beta, g_alpha, g_gamma)
+                            #     else:
+                            #         res += (-1)**( m ) * wignerD(l, t, -m, h_beta, h_alpha, h_gamma) *  wignerD(l, t,  m_, g_beta, g_alpha, g_gamma)
+                            #         res += - (-1)**m_ * wignerD(l, t, m, h_beta, h_alpha, h_gamma) *  wignerD(l, t, -m_, g_beta, g_alpha, g_gamma)
+
+                            # print(res - wignerD( l, m, m_,  u_beta, u_alpha, u_gamma ) ) 
+                            if b == b_ and n == n_ and t != 0:
+                                W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(t - j)) * wignerD(b, -t, - j, beta, alpha, gamma)
+                            elif b == b_ and n == - n_ and t != 0:
+                                W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(-t - n + 1)) * wignerD(b, - t, j, beta, alpha, gamma)
+                            elif b == b_ and n == n_ and t == 0:
+                                W[g_order_j, g_order_t, so3_index] = (-1)**(np.abs(j)) * wignerD(b, t, -j, beta, alpha, gamma )
+                            elif b == b_ and n == -n_ and t == 0:
+                                W[g_order_j, g_order_t, so3_index] = -(-1)**(np.abs(n)) * wignerD(b, t, j, beta, alpha, gamma )
+                        elif j < 0 and n == 0: # case 6
+                        # case 6, m < 0, m_ = 0
+                            # l, m , m_ = 5, -2, 0
+                            # res = 0
+                            # for t in range(-l, l+1):
+                            #     if t is not 0:
+                            #         res += (-1) ** (t - m_ + 1) * wignerD(l, -t, m, h_beta, h_alpha, h_gamma) * wignerD(l, t, 0, g_beta, g_alpha, g_gamma)
+                            #         res += (-1)**(t - m) * wignerD(l, -t, -m, h_beta, h_alpha, h_gamma) * wignerD(l, t, 0, g_beta, g_alpha, g_gamma)
+                            #     else:
+                            #         res += - wignerD(l, t, m, h_beta, h_alpha, h_gamma) *  wignerD(l, t, 0, g_beta, g_alpha, g_gamma)
+                            # print(res - wignerD( l, m, m_,  u_beta, u_alpha, u_gamma ) ) 
+                            if b == b_ and n_ == 0 and t != 0:
+                                W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(t - j)) * wignerD(b, -t, -j, beta, alpha, gamma) + (-1) ** (np.abs(t + 1)) * wignerD(b, - t, j,  beta, alpha, gamma)
+                            elif b == b_ and n_ == 0 and t == 0:
+                                W[g_order_j, g_order_t, so3_index] = - wignerD(b, t, j, beta, alpha, gamma )
+                        elif j == 0 and n > 0: # case 7
+                        # case 7, m = 0, m_ > 0
+                            # l, m , m_ = 5, 0,  3
+                            # res = 0
+                            # for t in range(-l, l+1):
+                            #     if t is not 0:
+                            #         res += wignerD(l, t, m, h_beta, h_alpha, h_gamma) * wignerD(l, t, m_, g_beta, g_alpha, g_gamma)
+                            #         res += (-1)**(m+m_) * wignerD(l, t,- m, h_beta, h_alpha, h_gamma) * wignerD(l, t,- m_, g_beta, g_alpha, g_gamma)
+                            #     else:
+                            #         res +=  wignerD(l, t, m, h_beta, h_alpha, h_gamma) *  wignerD(l, t, m_, g_beta, g_alpha, g_gamma) 
+                            # print(res - wignerD( l, m, m_,  u_beta, u_alpha, u_gamma ) ) 
+                            if b == b_ and n == n_ and t != 0:
+                                W[g_order_j, g_order_t, so3_index] = wignerD(b, t, j, beta, alpha, gamma )
+                            elif b == b_ and n == -n_ and t != 0:
+                                W[g_order_j, g_order_t, so3_index] = (-1)**(np.abs(j+n)) * wignerD(b, t, -j,beta, alpha, gamma  )
+                            elif b == b_ and n == n_ and t  == 0:
+                                W[g_order_j, g_order_t, so3_index] =  wignerD(b, t, j, beta, alpha, gamma )
+                        elif j == 0 and n < 0: # case 8
+                      # case 8, m = 0, m_ < 0
+                            # l, m , m_ = 5,0, -2
+                            # res = 0
+                            # for t in range(-l, l+1):
+                            #     if t is not 0:
+                            #         res += (-1) ** (-t - m_ + 1) * wignerD(l, -t, m, h_beta, h_alpha, h_gamma) * wignerD(l, t, -m_, g_beta, g_alpha, g_gamma)
+                            #         res += (-1)**(t - m) * wignerD(l, -t, -m, h_beta, h_alpha, h_gamma) * wignerD(l, t, m_, g_beta, g_alpha, g_gamma)
+                            #     else:
+                            #         res += wignerD(l, t, m, h_beta, h_alpha, h_gamma) *  wignerD(l, t, m_, g_beta, g_alpha, g_gamma)
+                            # print(res - wignerD( l, m, m_,  u_beta, u_alpha, u_gamma ) ) 
+                            if b == b_ and n == n_ and t != 0:
+                                W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(t - j)) * wignerD(b, -t, -j, beta, alpha, gamma)
+                            elif b == b_ and n == -n_ and t != 0:
+                                W[g_order_j, g_order_t, so3_index] = (-1) ** (np.abs(-t - n + 1)) * wignerD(b, -t, j, beta, alpha, gamma)
+                            elif b == b_ and n == n_ and t == 0:
+                                W[g_order_j, g_order_t, so3_index] = wignerD(b, t, j, beta, alpha, gamma )
+                        elif j == 0 and n == 0: # case 9
+                        # case 9, m = 0, m_ = 0
+                            # l, m , m_ = 5, 0,  0
+                            # res = 0
+                            # for t in range(-l, l+1):
+                            #     if t is not 0:
+                            #         res += wignerD(l, t, m, h_beta, h_alpha, h_gamma) * wignerD(l, t, m_, g_beta, g_alpha, g_gamma)
+                            #         res += (-1)**(m+m_) * wignerD(l, t,- m, h_beta, h_alpha, h_gamma) * wignerD(l, t,- m_, g_beta, g_alpha, g_gamma)
+                            #     else:
+                            #         res +=  wignerD(l, t, m, h_beta, h_alpha, h_gamma) *  wignerD(l, t, m_, g_beta, g_alpha, g_gamma)
+                            # print(res - wignerD( l, m, m_,  u_beta, u_alpha, u_gamma ) ) 
+                            if b == b_ and n_ == 0 and t != 0:
+                                W[g_order_j, g_order_t, so3_index] =  2 * wignerD(b, t, 0, beta, alpha, gamma ) 
+                            elif b == b_ and n_ == 0 and t  == 0:
+                                W[g_order_j, g_order_t, so3_index] =  wignerD(b, t, 0, beta, alpha, gamma )
+                        else:
+                            pass
+        # Construct tensor T.
+
+        T = torch.zeros(  (self.v_index.shape[0], self.v_index.shape[0], self.output_so3_grid.shape[0]), dtype=torch.float32)  
 
         for so3_index in range(self.output_so3_grid.shape[0]):
+
+            beta, alpha, gamma = self.output_so3_grid[so3_index, :]
+
             for v_order_m, v_idx_m in enumerate(self.v_index):
                 q, l, m = v_idx_m[0], v_idx_m[1], v_idx_m[2]
                 for v_order_s, v_idx_s in enumerate(self.v_index):
                     q_, l_, s = v_idx_s[0], v_idx_s[1], v_idx_s[2]
                     if q == q_ and l == l_:
-                        # conj ( D_l^{s,m} (h) )
-                        T_order = ( l * (2 * l - 1) * (2 * l + 1) )//3 + (s + l) * (2 * l + 1) + (m + l)
-                        T_real[v_order_m, v_order_s, so3_index] =  output_cache[T_order, so3_index, 0]
-                        T_imag[v_order_m, v_order_s, so3_index] =  -output_cache[T_order, so3_index, 1] # conj
-                    
-        # 1st layer does not need W.
-        if self.standard_layer:
-            for so3_index in range(self.output_so3_grid.shape[0]):
-                for g_order_j, g_idx_j in enumerate(self.g_index):
-                    b, j, n = g_idx_j[0], g_idx_j[1], g_idx_j[2]
-                    for g_order_t, g_idx_t in enumerate(self.g_index):
-                        b_, t, n_ = g_idx_t[0], g_idx_t[1], g_idx_t[2]
-                        if b == b_ and n == n_:# check later
-                            W_order = ( b * (2 * b - 1) * (2 * b + 1) )//3 + (t + b) * (2 * b + 1) + (j + b)
-                            
-                            W_real[g_order_j, g_order_t, so3_index] = output_cache[W_order, so3_index, 0]
-                            W_imag[g_order_j, g_order_t, so3_index] = output_cache[W_order, so3_index, 1]
-                    
-        
+                        # l, m = 11, 7
+                        # rhs = spherical_harmonics(m, l, u_theta, u_phi)
+                        # lhs = 0
+                        # for m_ in range(1, l+1):
+                        #     a = (-1)**m_ * wignerD(l, m_ , -m, beta, alpha, gamma) + (-1) ** (m_- m) * wignerD(l, m_  , m,  beta, alpha, gamma)
+                        #     lhs += a *  spherical_harmonics(m_, l, v_theta, v_phi)
+                        # for m_ in range(-l, 0):
+                        #     c = wignerD(l , m_  , -m,  beta, alpha, gamma) +  (-1) ** (m ) * wignerD(l, m_ , m,   beta, alpha, gamma)
+                        #     lhs += c *  spherical_harmonics(m_, l, v_theta, v_phi)
+                        # r = (-1)**(m)* wignerD(l, 0, m, beta, alpha, gamma)
+                        # lhs += np.sqrt(2) * r *  spherical_harmonics(0, l, v_theta, v_phi)
+                        # print(lhs  - rhs)
+                        if m > 0 and s > 0:
+                            T[v_order_m, v_order_s, so3_index] = (-1)**s * wignerD(l, s, -m, beta, alpha, gamma) + (-1)** ( np.abs(s -m) ) * wignerD(l, s , m,  beta, alpha, gamma) 
+                        elif m > 0 and s < 0:
+                            T[v_order_m, v_order_s, so3_index] = wignerD(l, s , -m,  beta, alpha, gamma) + (-1)**m * wignerD(l, s , m,   beta, alpha, gamma)
+                        elif m > 0 and s == 0:
+                            T[v_order_m, v_order_s, so3_index] =  np.sqrt(2) * (-1)**(m) * wignerD(l, 0, m, beta, alpha, gamma)
+                        # l, m = 8, -1
+                        # rhs = spherical_harmonics(m, l, u_theta, u_phi)
+                        # lhs = 0
+                        # for m_ in range(1, l+1):
+                        #     a = (-1)**(m) * wignerD(l, -m_, -m, beta, alpha, gamma) - wignerD(l, -m_, m, beta, alpha, gamma)
+                        #     lhs += a *  spherical_harmonics(m_, l, v_theta, v_phi)
+                        # for m_ in range(-l, 0):
+                        #     c = -(-1)**(m_) * wignerD(l, -m_, m, beta, alpha, gamma) + (-1)**(m_-m) * wignerD(l, -m_, -m,  beta, alpha, gamma)
+                        #     lhs += c *  spherical_harmonics(m_, l, v_theta, v_phi)
+                        # s = wignerD(l, 0, m, beta, alpha, gamma)
+                        # lhs += -np.sqrt(2) * s *  spherical_harmonics(0, l, v_theta, v_phi)
+                        # print(lhs- rhs)
+                        elif m < 0 and s > 0:
+                            T[v_order_m, v_order_s, so3_index] = (-1)**(-m) * wignerD(l, -s, -m, beta, alpha, gamma) - wignerD(l, -s, m, beta, alpha, gamma)
+                        elif m < 0 and s < 0:
+                            T[v_order_m, v_order_s, so3_index] = -(-1)**(-s) * wignerD(l, -s, m, beta, alpha, gamma) + (-1)** ( np.abs(s-m) ) * wignerD(l, -s, -m,  beta, alpha, gamma)
+                        elif m < 0 and s == 0:
+                            T[v_order_m, v_order_s, so3_index] = -np.sqrt(2) * wignerD(l, 0, m, beta, alpha, gamma)
+                        # l, m = 12, 0
+                        # rhs = spherical_harmonics(m, l, u_theta, u_phi)
+                        # lhs = 0
+                        # for m_ in range(1, l+1):
+                        #     a = (-1)**m_ * wignerD(l, m_ , -m, beta, alpha, gamma) + (-1) ** (m_- m) * wignerD(l, m_  , m,  beta, alpha, gamma)
+                        #     lhs += a *  spherical_harmonics(m_, l, v_theta, v_phi) / np.sqrt(2) 
+                        # for m_ in range(-l, 0):
+                        #     c = wignerD(l , m_  , -m,  beta, alpha, gamma) +  (-1) ** (m ) * wignerD(l, m_ , m,   beta, alpha, gamma)
+                        #     lhs += c *  spherical_harmonics(m_, l, v_theta, v_phi) / np.sqrt(2)
+                        # r = wignerD(l, 0,0, beta, alpha, gamma)
+                        # lhs += r *  spherical_harmonics(0, l, v_theta, v_phi)
+                        # print(lhs  - rhs)
+                        elif m == 0 and s > 0:
+                            T[v_order_m, v_order_s, so3_index] = ( (-1)**s * wignerD(l, s , -m, beta, alpha, gamma) + (-1)**( np.abs(s -m) ) * wignerD(l, s , m,  beta, alpha, gamma) ) / np.sqrt(2)
+                        elif m == 0 and s < 0:
+                            T[v_order_m, v_order_s, so3_index] = ( wignerD(l, s , -m,  beta, alpha, gamma) + (-1)**m * wignerD(l, s , m,   beta, alpha, gamma) ) / np.sqrt(2) 
+                        elif m == 0 and s == 0:
+                            T[v_order_m, v_order_s, so3_index] =  wignerD(l, 0, m, beta, alpha, gamma)
+                        else:
+                            pass 
+
+
+
+
         self.register_buffer('input_so3_weight',   input_so3_weight)
         self.register_buffer('output_so3_weight',  output_so3_weight)
-        self.register_buffer('cache',              cache)
-        self.register_buffer('kernel_real',        kernel_real)
-        self.register_buffer('kernel_imag',        kernel_imag)
+        self.register_buffer('output_wigner_basis',output_wigner_basis)
+        self.register_buffer('input_wigner_basis',input_wigner_basis)
+        self.register_buffer('kernel',        kernel)
         
         if self.standard_layer:
-            self.register_buffer('W_real', W_real)
-            self.register_buffer('W_imag', W_imag)
+            self.register_buffer('W', W)
             
-        self.register_buffer('T_real', T_real)
-        self.register_buffer('T_imag', T_imag)
+        self.register_buffer('T', T)
 
         # set parameter for this layer. Requires grad.
 
@@ -208,25 +430,19 @@ class Prototype(torch.nn.Module):
         # Step 1. 
         # Compute H functions through SO3 integral by einsum on {Group Size}. 
         #
-        # Output is {Batch Size} x {Channel In} x {g_index} x {H} x {W} x {D} (x 2}
-        # Typical Output Batch Data 1 x 8 x 84 x 32 x 32 x 32 (x 2) (float32) = 0.32 GByte. (64x64x64 images ~ 2.4GBytes, later downsample to 32x32x32)
-        # Remember the conjugate (negative sign)
+        # Output is {Batch Size} x {Channel In} x {g_index} x {H} x {W} x {D} 
+        # Typical Output Batch Data 1 x 8 x 84 x 32 x 32 x 32  (float32) = 0.16 GByte. (64x64x64 images ~ 1.2GBytes)
         # Should use GPU (by loading the data on GPU).
 
-        H, W, D = batch_images.shape[-4], batch_images.shape[-3], batch_images.shape[-2] 
+        H, W, D = batch_images.shape[-3], batch_images.shape[-2], batch_images.shape[-1] 
 
         if self.standard_layer:
 
-            H_real =  torch.einsum('bighwd, kg->bikhwd', batch_images[..., 0],  ( self.cache[:, :, 0] ) * self.input_so3_weight.view(1,-1)) + \
-            torch.einsum('bighwd, kg->bikhwd', batch_images[..., 1],  ( self.cache[:self.g_index.shape[0], :,1] ) * self.input_so3_weight.view(1,-1))
+            H_ =  torch.einsum('bighwd, kg->bikhwd', batch_images,  ( self.input_wigner_basis ) * self.input_so3_weight.view(1,-1))
 
-            H_imag = -torch.einsum('bighwd, kg->bikhwd', batch_images[..., 0],  ( self.cache[:, :, 1] ) * self.input_so3_weight.view(1,-1)) + \
-            torch.einsum('bighwd, kg->bikhwd', batch_images[..., 1],  ( self.cache[:self.g_index.shape[0], :, 0] ) * self.input_so3_weight.view(1,-1))
-        
         else:
-            H_real =  batch_images[..., 0]
+            H_ =  batch_images
 
-            H_imag =  batch_images[..., 1]
 
             
         # Step 2.
@@ -243,55 +459,29 @@ class Prototype(torch.nn.Module):
         #   standard_layer: {Batch Size} x {Channel In} x {g_index} x {v_index} x {H'} x {W'} x {D'} (depends on convolution arguments).
         #   otherwise:      {Batch Size} x {Channel In} x             {v_index} x {H'} x {W'} x {D'} (depends on convolution arguments).
         #
-        # Typical Output Size: 1 x 8 x 84 x (3 x 35) x 32 x 32 x 32 (x 2) float ~ 4.3 GBytes.
+        # Typical Output Size: 1 x 8 x 84 x (3 x 35) x 32 x 32 x 32  float ~ 2.15 GBytes.
 
-        real_part = torch.nn.functional.conv3d(input = H_real.reshape(-1, 1, H, W, D ) , \
-                                weight = self.kernel_real.view(-1, 1, 2 * self.kernel_size + 1 , 2 * self.kernel_size + 1 , 2 * self.kernel_size + 1 ), \
+        output = torch.nn.functional.conv3d(input = H_.reshape(-1, 1, H, W, D ) , \
+                                weight = self.kernel.view(-1, 1, 2 * self.kernel_size + 1 , 2 * self.kernel_size + 1 , 2 * self.kernel_size + 1 ), \
                                 padding = self.padding, stride=self.stride)
-        
-        real_part -=  torch.nn.functional.conv3d(input = H_imag.reshape(-1, 1, H, W, D) , \
-                                weight = self.kernel_imag.view(-1, 1, 2 * self.kernel_size + 1 , 2 * self.kernel_size + 1 , 2 * self.kernel_size + 1 ), \
-                                padding = self.padding, stride=self.stride)
-        
-        imag_part = torch.nn.functional.conv3d(input = H_real.reshape(-1, 1, H, W, D) , \
-                                weight = self.kernel_imag.view(-1, 1, 2 * self.kernel_size + 1 , 2 * self.kernel_size + 1 , 2 * self.kernel_size + 1 ), \
-                                padding = self.padding, stride=self.stride)
-        
-        imag_part +=  torch.nn.functional.conv3d(input = H_imag.reshape(-1, 1, H, W, D) , \
-                                weight = self.kernel_real.view(-1, 1, 2 * self.kernel_size + 1 , 2 * self.kernel_size + 1 , 2 * self.kernel_size + 1 ), \
-                                padding = self.padding, stride=self.stride)
-        
         
         if self.standard_layer:
-            return  real_part.view(batch_images.shape[0], \
+            return  output.view(batch_images.shape[0], \
                                 batch_images.shape[1], \
                                 self.g_index.shape[0], \
                                 self.v_index.shape[0], \
-                                real_part.shape[-3], \
-                                real_part.shape[-2], \
-                                real_part.shape[-1]), \
-                    imag_part.view(batch_images.shape[0], \
-                                batch_images.shape[1], \
-                                self.g_index.shape[0], \
-                                self.v_index.shape[0], \
-                                imag_part.shape[-3], \
-                                imag_part.shape[-2], \
-                                imag_part.shape[-1])
+                                output.shape[-3], \
+                                output.shape[-2], \
+                                output.shape[-1])
                     
         else:
             # non standard layer
-            return  real_part.view(batch_images.shape[0], \
+            return  output.view(batch_images.shape[0], \
                                 batch_images.shape[1], \
                                 self.v_index.shape[0], \
-                                real_part.shape[-3], \
-                                real_part.shape[-2], \
-                                real_part.shape[-1]), \
-                    imag_part.view(batch_images.shape[0], \
-                                batch_images.shape[1], \
-                                self.v_index.shape[0], \
-                                imag_part.shape[-3], \
-                                imag_part.shape[-2], \
-                                imag_part.shape[-1])       
+                                output.shape[-3], \
+                                output.shape[-2], \
+                                output.shape[-1])     
         
 
     def non_standard_forward(self, batch_images):
@@ -300,8 +490,8 @@ class Prototype(torch.nn.Module):
         #   standard:  {Batch Size (b)} x {Channel In (i)} x {g_index (K)} x {v_index (V)} x {H'} x {W'} x {D'} (depends on convolution arguments).
         #   otherwise: {Batch Size (b)} x {Channel In (i)}                 x {v_index (V)} x {H'} x {W'} x {D'} (depends on convolution arguments).
         
-        with torch.no_grad():
-            G_real, G_imag = self.compute_G(batch_images) 
+        with torch.no_grad(): # since this will be first layer and unrelates to parameter
+            G = self.compute_G(batch_images) 
 
         # parameters:     {Channel In (i)} x {Channel Out (o)} x {g_index (K)} x {v_index (V)}
 
@@ -310,22 +500,10 @@ class Prototype(torch.nn.Module):
         einsum_str1 = 'iokv, vVg->iokVg'
         einsum_str2 = 'iokVg, biVhwd->boghwd'
 
-        output = torch.einsum(einsum_str1,         self.weights, self.T_real)
-        output_real = torch.einsum(einsum_str2,    output, G_real)
+        output = torch.einsum(einsum_str1,    self.weights, self.T)
+        output = torch.einsum(einsum_str2,    output, G)
 
-        output = torch.einsum(einsum_str1,          self.weights, self.T_real)
-        output_imag = torch.einsum(einsum_str2,     output, G_imag)
-
-        output = torch.einsum(einsum_str1,          self.weights, self.T_imag)
-        output_imag += torch.einsum(einsum_str2,       output, G_real)
-
-        output = torch.einsum(einsum_str1,          self.weights, self.T_imag)
-        output_real -= torch.einsum(einsum_str2,      output, G_imag)
-
-        output_real = output_real.unsqueeze(dim=-1)
-        output_imag = output_imag.unsqueeze(dim=-1)
-
-        return torch.cat((output_real, output_imag), dim=-1) # Batch x Out Channel x Group x H x W x D
+        return output # Batch x Out Channel x Group x H x W x D
 
 
     def standard_forward(self, batch_images):
@@ -334,7 +512,7 @@ class Prototype(torch.nn.Module):
         #   standard:  {Batch Size (b)} x {Channel In (i)} x {g_index (K)} x {v_index (V)} x {H'} x {W'} x {D'} (depends on convolution arguments).
         #   otherwise: {Batch Size (b)} x {Channel In (i)}                 x {v_index (V)} x {H'} x {W'} x {D'} (depends on convolution arguments).
 
-        G_real, G_imag = self.compute_G(batch_images) 
+        G = self.compute_G(batch_images) 
         
         # parameters:   {Channel In (i)} x {Channel Out (o)} x {g_index (K)} x {v_index (V)}
 
@@ -344,42 +522,11 @@ class Prototype(torch.nn.Module):
 
         # For memory efficiency, only 3 + (temp) terms needed.
 
-        output = torch.einsum('iokv, kKg->ioKvg',          self.weights, self.W_real)
-        output = torch.einsum('ioKvg, vVg->ioKVg',               output, self.T_real)
-        output_real = torch.einsum('ioKVg, biKVhwd->boghwd',     output, G_real)
+        output = torch.einsum('iokv, kKg->ioKvg',          self.weights, self.W)
+        output = torch.einsum('ioKvg, vVg->ioKVg',         output, self.T)
+        output = torch.einsum('ioKVg, biKVhwd->boghwd',    output, G)
 
-        output = torch.einsum('iokv, kKg->ioKvg',          self.weights, self.W_imag)
-        output = torch.einsum('ioKvg, vVg->ioKVg',               output, self.T_imag)
-        output_real -= torch.einsum('ioKVg, biKVhwd->boghwd',      output, G_real)
-
-        output = torch.einsum('iokv, kKg->ioKvg',          self.weights, self.W_imag)
-        output = torch.einsum('ioKvg, vVg->ioKVg',               output, self.T_real)
-        output_real -= torch.einsum('ioKVg, biKVhwd->boghwd',      output, G_imag)
-
-        output = torch.einsum('iokv, kKg->ioKvg',          self.weights, self.W_real)
-        output = torch.einsum('ioKvg, vVg->ioKVg',               output, self.T_imag)
-        output_real -= torch.einsum('ioKVg, biKVhwd->boghwd',      output, G_imag)
-
-        output = torch.einsum('iokv, kKg->ioKvg',          self.weights, self.W_real)
-        output = torch.einsum('ioKvg, vVg->ioKVg',               output, self.T_real)
-        output_imag = torch.einsum('ioKVg, biKVhwd->boghwd',      output, G_imag)
-
-        output = torch.einsum('iokv, kKg->ioKvg',          self.weights, self.W_real)
-        output = torch.einsum('ioKvg, vVg->ioKVg',               output, self.T_imag)
-        output_imag += torch.einsum('ioKVg, biKVhwd->boghwd',      output, G_real)
-
-        output = torch.einsum('iokv, kKg->ioKvg',          self.weights, self.W_imag)
-        output = torch.einsum('ioKvg, vVg->ioKVg',               output, self.T_real)
-        output_imag += torch.einsum('ioKVg, biKVhwd->boghwd',      output, G_real)
-
-        output = torch.einsum('iokv, kKg->ioKvg',          self.weights, self.W_imag)
-        output = torch.einsum('ioKvg, vVg->ioKVg',               output, self.T_imag)
-        output_imag -= torch.einsum('ioKVg, biKVhwd->boghwd',      output, G_imag)
-
-        output_real = output_real.unsqueeze(dim=-1)
-        output_imag = output_imag.unsqueeze(dim=-1)
-
-        return torch.cat((output_real, output_imag), dim=-1) # Batch x Out Channel x Group x H x W x D
+        return output # Batch x Out Channel x Group x H x W x D
 
     def forward(self, batch_images):
         if self.standard_layer:
@@ -391,9 +538,7 @@ class Prototype(torch.nn.Module):
         local_mesh_mat = np.zeros((self.v_index.shape[0], self.v_index.shape[0] ), dtype=complex )
         for row in range(self.v_index.shape[0]):
             for col in range(self.v_index.shape[0]):
-                real_val =  torch.sum(self.kernel_real[row, :, :, :] * self.kernel_real[col, :, :, :] + self.kernel_imag[row, :, :, :] * self.kernel_imag[col, :, :, :]).item()
-                imag_val =  torch.sum(-self.kernel_real[row, :, :, :] * self.kernel_imag[col, :, :, :] +  self.kernel_imag[row, :, :, :] * self.kernel_real[col, :, :, :]).item()
-                local_mesh_mat[row, col] = real_val + 1j * imag_val 
+                local_mesh_mat[row, col] = torch.sum(self.kernel[row, :, :, :] * self.kernel[col, :, :, :]).item()
 
         # normalize.
         for row in range(self.v_index.shape[0]):
@@ -408,19 +553,11 @@ class Prototype(torch.nn.Module):
 
         for row in range(self.g_index.shape[0]):
             for col in range(self.g_index.shape[0]):
-                real_part = torch.sum( ( self.cache[row, :, 0] * self.cache[col, :, 0] + \
-                 self.cache[row, :, 1] * self.cache[col, :, 1] ) * self.input_so3_weight ).item()  * (4*np.pi**3/ self.input_so3_grid.shape[0] )
-                imag_part = torch.sum( (- self.cache[row, :, 0] * self.cache[col, :, 1] + \
-                 self.cache[row, :, 1] * self.cache[col, :, 0] ) * self.input_so3_weight ).item() * (4*np.pi**3/ self.input_so3_grid.shape[0] )
-
-                local_wigner_mat[row, col] = real_part + 1j * imag_part
-
-        
+                local_wigner_mat[row, col] = torch.sum( self.output_wigner_basis[row, :] * self.output_wigner_basis[col, :] * self.output_so3_weight ).item()  * (4*np.pi**3/ self.input_so3_grid.shape[0] )
         # normalize.
         for row in range(self.g_index.shape[0]):
             for col in range(self.g_index.shape[0]):
-                local_wigner_mat[row, col] =  local_wigner_mat[row, col] / np.sqrt(local_wigner_mat[row, row].real   * local_wigner_mat[col, col].real)
+                local_wigner_mat[row, col] =  local_wigner_mat[row, col] / (np.sqrt(local_wigner_mat[row, row].real   * local_wigner_mat[col, col].real))
 
         wigner_svd_vals = np.linalg.svd(local_wigner_mat, compute_uv=False)
-
         print( 'group frame score: (largest gap between 1 and singular values)', np.max( [np.abs(1-np.min(wigner_svd_vals)) , np.abs(1-np.max(wigner_svd_vals))] ) )
