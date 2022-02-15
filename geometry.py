@@ -8,21 +8,19 @@ import ctypes
 
 
 class _node(object):
-    def __init__(self, points, weights):
+    def __init__(self, points, weights, variances):
         self.points = points
         if weights is not None:
             self.weights = weights
         else:
             self.weights = np.ones(self.points.shape[0])
+        
+        self.variances = variances
 
         self.get_information()
         self.children = [None] * 8
 
     def get_information(self):
-        # todo: get the furthest two points as x-axis.
-        #       get the other two axis through mass center, orthogonal to x-axis.
-        #       project all points onto yz-plane, locate the furthest two points as y-axis.
-        #       z-axis is then determined.
         x_, y_, z_ = zip(*self.points)
         x_min, y_min, z_min = min(x_), min(y_), min(z_)
         x_max, y_max, z_max = max(x_), max(y_), max(z_)
@@ -30,7 +28,7 @@ class _node(object):
         self.center = [(x_max + x_min)/2, (y_max + y_min)/2, (z_max + z_min)/2]
 
 
-def downsampling(points, weights=None, leaf_size=8):
+def downsampling(points, weights, variances, leaf_size=8):
     # Input:
     #   points     : numpy array of N x D, each row contains the 
     #                coordinates, if weight is not included, then 
@@ -72,10 +70,11 @@ def downsampling(points, weights=None, leaf_size=8):
     """
     down sampling
     """
-    root = _node(points, weights)
+    root = _node(points, weights, variances)
     
     down_sampled_points = []
     down_sampled_weights = []
+    down_sampled_variances = []
     
     queue = []
     queue.append(root)
@@ -86,31 +85,38 @@ def downsampling(points, weights=None, leaf_size=8):
 
             neighbor_points = [[], [], [], [], [], [], [], []] 
             neighbor_weights = [[], [], [], [], [], [], [], []] 
+            neighbor_variances = [[], [], [], [], [], [], [], []] 
 
             for id in range(cur_node.points.shape[0]):
                 pos = cur_node.points[id] > cur_node.center
                 neighbor_id = 4 * pos[0] + 2 * pos[1] + pos[2]
                 neighbor_points[neighbor_id].append( cur_node.points[id] )
                 neighbor_weights[neighbor_id].append( cur_node.weights[id] )
+                neighbor_variances[neighbor_id].append( cur_node.variances[id] )
 
             for neighbor_id in range(8):
                 if neighbor_points[neighbor_id]:
 
                     cur_node.children[neighbor_id] = _node( 
                         np.array(neighbor_points[neighbor_id]), 
-                        np.array(neighbor_weights[neighbor_id]))
+                        np.array(neighbor_weights[neighbor_id]),
+                        np.array(neighbor_variances[neighbor_id]))
                     
                     queue.append(cur_node.children[neighbor_id])
         else:
             # it is a leaf node 
-            down_sampled_points.append (
-                np.sum(cur_node.points * 
-                       cur_node.weights[:, None] 
-                       / np.sum (cur_node.weights), 
-                       axis = 0 ))
-            down_sampled_weights.append(np.sum (cur_node.weights))
+            total_weight = np.sum (cur_node.weights)
+            mass_center = np.sum(cur_node.points * cur_node.weights[:, None] / total_weight, axis = 0 )
 
-    return np.array(down_sampled_points @ basis), np.array(down_sampled_weights)
+            down_sampled_points.append (mass_center)
+            down_sampled_weights.append(total_weight )
+
+            theta =  np.sum( [ np.outer(cur_node.points[i, :], cur_node.points[i, :] )* cur_node.weights[i] for i in range(cur_node.points.shape[0]) ], axis=0)
+            psi   =  np.sum([cur_node.weights[i] * cur_node.variances[i]  for i in range(cur_node.points.shape[0])], axis=0)
+            
+            down_sampled_variances.append((theta + psi)/ total_weight - np.outer( mass_center, mass_center) )
+
+    return np.array(down_sampled_points @ basis), np.array(down_sampled_weights), np.array(down_sampled_variances)
 
 def _orientation(p,q,r):
     return (q[1]-p[1])*(r[0]-p[0]) - (q[0]-p[0])*(r[1]-p[1])
