@@ -1,12 +1,11 @@
 from __future__ import generators
 
+
+from numpy.ctypeslib import ndpointer
 import numpy as np
 
 import ctypes
-from numpy.ctypeslib import ndpointer
 
-from mpl_toolkits.mplot3d import Axes3D
-import matplotlib.pyplot as plt
 
 class _node(object):
     def __init__(self, points, weights):
@@ -24,23 +23,59 @@ class _node(object):
         #       get the other two axis through mass center, orthogonal to x-axis.
         #       project all points onto yz-plane, locate the furthest two points as y-axis.
         #       z-axis is then determined.
-
-        x_, y_, z_= zip(*self.points)
+        x_, y_, z_ = zip(*self.points)
         x_min, y_min, z_min = min(x_), min(y_), min(z_)
         x_max, y_max, z_max = max(x_), max(y_), max(z_)
         self.radius = [(x_max - x_min)/2, (y_max - y_min)/2, (z_max - z_min)/2]
         self.center = [(x_max + x_min)/2, (y_max + y_min)/2, (z_max + z_min)/2]
 
+
 def down_sampling(points, weights=None, leaf_size=8):
     # Input:
-    #   point_cloud: numpy array of N x (D + 1) or N x D, each row contains the 
-    #                coordinates and (weight), if weight is not included, then 
+    #   points     : numpy array of N x D, each row contains the 
+    #                coordinates, if weight is not included, then 
     #                all weights are 1. 
+    #   weights    : numpy array of N.
     #   leaf_size  : integer, the minimum cluster to be approximated.
     #
     # Output:
     #   down_sampled_point_cloud: numpy array of M x D.
-    
+
+    """
+    preprocessing
+    """
+    diameter_pair = diameter(points)  
+
+    basis = np.zeros((3, 3))
+
+    basis[0] = ( diameter_pair[1] - diameter_pair[0] )
+
+    print(np.linalg.norm(basis[0])     )
+    basis[0] = basis[0] / np.linalg.norm(basis[0])         # normalize
+
+    projection = np.eye(3) - np.outer(basis[0], basis[0])  # it is symmetric
+
+    projected_points = points @ projection           
+
+    diameter_pair = diameter(projected_points)
+
+    basis[1]  = ( diameter_pair[1] - diameter_pair[0] )  
+
+    print(np.linalg.norm(basis[1])     )
+    basis[1] = basis[1] / np.linalg.norm(basis[1])         # normalize
+
+    basis[2] = np.cross(basis[0], basis[1])                # right-hand-rule.
+
+    _x = points @ basis[0]
+    _y = points @ basis[1]
+    _z = points @ basis[2]
+
+    # Rotate the points
+    points = np.vstack((_x, _y, _z)).T
+
+    """
+    down sampling
+    """
     root = _node(points, weights)
     
     down_sampled_points = []
@@ -67,8 +102,7 @@ def down_sampling(points, weights=None, leaf_size=8):
 
                     cur_node.children[neighbor_id] = _node( 
                         np.array(neighbor_points[neighbor_id]), 
-                        np.array(neighbor_weights[neighbor_id]) 
-                        )
+                        np.array(neighbor_weights[neighbor_id]))
                     
                     queue.append(cur_node.children[neighbor_id])
         else:
@@ -80,14 +114,12 @@ def down_sampling(points, weights=None, leaf_size=8):
                        axis = 0 ))
             down_sampled_weights.append(np.sum (cur_node.weights))
 
-    return np.array(down_sampled_points), np.array(down_sampled_weights)
+    return np.array(down_sampled_points @ basis), np.array(down_sampled_weights)
 
 def _orientation(p,q,r):
-    '''Return positive if p-q-r are clockwise, neg if ccw, zero if colinear.'''
     return (q[1]-p[1])*(r[0]-p[0]) - (q[0]-p[0])*(r[1]-p[1])
 
 def _hulls(Points):
-    '''Graham scan to find upper and lower convex hulls of a set of 2d points.'''
     U = []
     L = []
     Points.sort()
@@ -99,9 +131,6 @@ def _hulls(Points):
     return U,L
 
 def _rotatingCalipers(Points):
-    '''Given a list of 2d points, finds all ways of sandwiching the points
-between two parallel lines that touch one point each, and yields the sequence
-of pairs of points touched by each pair of lines.'''
     U,L = _hulls(Points)
     i = 0
     j = len(L) - 1
@@ -120,7 +149,6 @@ of pairs of points touched by each pair of lines.'''
         else: j -= 1
 
 def diameter(Points):
-    '''Given a list of 2d points, returns the pair that's farthest apart.'''
     if Points.shape[1] == 2:
         _, pair = max([((p[0]-q[0])**2 + (p[1]-q[1])**2, (p,q))
                         for p,q in _rotatingCalipers(Points)])
