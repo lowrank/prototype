@@ -30,7 +30,7 @@ class _node(object):
         self.center = [(x_max + x_min)/2, (y_max + y_min)/2, (z_max + z_min)/2]
 
 
-def down_sampling(points, weights=None, leaf_size=8):
+def downsampling(points, weights=None, leaf_size=8):
     # Input:
     #   points     : numpy array of N x D, each row contains the 
     #                coordinates, if weight is not included, then 
