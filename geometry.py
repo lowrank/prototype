@@ -49,8 +49,6 @@ def down_sampling(points, weights=None, leaf_size=8):
     basis = np.zeros((3, 3))
 
     basis[0] = ( diameter_pair[1] - diameter_pair[0] )
-
-    print(np.linalg.norm(basis[0])     )
     basis[0] = basis[0] / np.linalg.norm(basis[0])         # normalize
 
     projection = np.eye(3) - np.outer(basis[0], basis[0])  # it is symmetric
@@ -60,8 +58,6 @@ def down_sampling(points, weights=None, leaf_size=8):
     diameter_pair = diameter(projected_points)
 
     basis[1]  = ( diameter_pair[1] - diameter_pair[0] )  
-
-    print(np.linalg.norm(basis[1])     )
     basis[1] = basis[1] / np.linalg.norm(basis[1])         # normalize
 
     basis[2] = np.cross(basis[0], basis[1])                # right-hand-rule.
